@@ -5,6 +5,21 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Enable CORS for frontend integration
+  app.enableCors({
+    origin: [
+      'http://localhost:3000', // Next.js default dev port
+      'http://localhost:3001', // Alternative dev port
+      'http://localhost:3002', // Another common dev port
+      'https://splendid-starlink-frontend.onrender.com', // If you deploy frontend to Render
+      'https://splendid-starlink.vercel.app', // If you deploy to Vercel
+      'https://splendid-starlink.netlify.app', // If you deploy to Netlify
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true,
+  });
+
   // Setup Swagger
   const config = new DocumentBuilder()
     .setTitle('Starlink Wi-Fi Hotspot API')
