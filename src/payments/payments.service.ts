@@ -203,6 +203,16 @@ export class PaymentsService {
       const expiry = new Date();
       expiry.setHours(expiry.getHours() + plan.duration);
 
+      // Add purchased bundle to user record
+      await this.usersService.addPurchasedBundle(payment.userId, {
+        plan: payment.planId,
+        planName: plan.name,
+        purchasedAt: new Date(),
+        amount: payment.amount,
+        duration: plan.duration,
+        status: 'active'
+      });
+
       await this.usersService.updateUser(payment.userId, {
         isActive: true,
         sessionExpiry: expiry,

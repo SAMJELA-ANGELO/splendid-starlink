@@ -1,4 +1,4 @@
-import { Controller, Request, Post, UseGuards, Body } from '@nestjs/common';
+import { Controller, Request, Post, UseGuards, Body, Get } from '@nestjs/common';
 import {
   ApiOperation,
   ApiResponse,
@@ -58,5 +58,18 @@ export class AuthController {
       message: 'User created',
       user: { id: (user._id as unknown as string), username: user.username },
     };
+  }
+
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({
+    status: 200,
+    description: 'Current user profile retrieved',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @UseGuards(LocalAuthGuard)
+  @Get('me')
+  async getProfile(@Request() req) {
+    const user = await this.usersService.findById(req.user.userId);
+    return user;
   }
 }

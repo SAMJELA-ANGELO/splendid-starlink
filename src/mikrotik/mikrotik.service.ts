@@ -42,32 +42,48 @@ export class MikrotikService implements OnModuleInit {
       throw new Error('MikroTik router not connected');
     }
 
+    // Check if connection is ready
+    try {
+      await this.connection.connect();
+      this.logger.log('MikroTik connection verified before activation');
+    } catch (connectError) {
+      this.logger.warn(`MikroTik connection failed: ${connectError.message}`);
+      throw new Error('Failed to connect to MikroTik router');
+    }
+
     const profile = `profile-${durationHours}h`;
     const uptimeLimit = `${durationHours}h`;
 
     try {
       this.logger.log(`Activating user ${username} with profile ${profile} for ${uptimeLimit}`);
 
-      await this.connection.write('/ip/hotspot/user/add', [
-        '=name=' + username,
-        '=password=' + username,
-        '=profile=' + profile,
-        '=limit-uptime=' + uptimeLimit,
+      // Use the correct Mikrotik API method
+      const result = await this.connection.write('/ip/hotspot/user/add', [
+        `=name=${username}`,
+        `=password=${username}`,
+        `=profile=${profile}`,
+        `=limit-uptime=${uptimeLimit}`,
       ]);
 
-      this.logger.log(`Successfully activated user ${username}`);
+      this.logger.log(`Successfully activated user ${username}, result:`, result);
     } catch (err: any) {
       if (err.message && err.message.includes('already exists')) {
         this.logger.log(`User ${username} already exists, updating profile`);
-        await this.connection.write('/ip/hotspot/user/set', [
-          '=numbers=' + username,
-          '=password=' + username,
-          '=profile=' + profile,
-          '=limit-uptime=' + uptimeLimit,
-        ]);
-        this.logger.log(`Successfully updated user ${username}`);
+        try {
+          const updateResult = await this.connection.write('/ip/hotspot/user/set', [
+            `=numbers=${username}`,
+            `=password=${username}`,
+            `=profile=${profile}`,
+            `=limit-uptime=${uptimeLimit}`,
+          ]);
+          this.logger.log(`Successfully updated user ${username}, result:`, updateResult);
+        } catch (updateErr) {
+          this.logger.error(`Failed to update user ${username}: ${updateErr.message}`);
+          throw updateErr;
+        }
       } else {
         this.logger.error(`Failed to activate user ${username}: ${err.message}`);
+        this.logger.error('Full error details:', err);
         throw err;
       }
     }

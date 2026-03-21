@@ -32,4 +32,30 @@ export class UsersService {
   ): Promise<boolean> {
     return bcrypt.compare(password, hashedPassword);
   }
+
+  async addPurchasedBundle(userId: string, bundleData: {
+    plan: string;
+    planName: string;
+    purchasedAt: Date;
+    amount: number;
+    duration: number;
+    status: string;
+  }): Promise<User | null> {
+    return this.userModel.findByIdAndUpdate(
+      userId,
+      {
+        $push: {
+          purchasedBundles: {
+            plan: bundleData.plan,
+            planName: bundleData.planName,
+            purchasedAt: bundleData.purchasedAt,
+            amount: bundleData.amount,
+            duration: bundleData.duration,
+            status: bundleData.status
+          }
+        }
+      },
+      { new: true }
+    ).exec();
+  }
 }
