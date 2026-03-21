@@ -6,6 +6,7 @@ import { Payment, PaymentSchema } from '../schemas/payment.schema';
 import { UsersModule } from '../users/users.module';
 import { PlansModule } from '../plans/plans.module';
 import { MikrotikModule } from '../mikrotik/mikrotik.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { MikrotikModule } from '../mikrotik/mikrotik.module';
     UsersModule,
     PlansModule,
     MikrotikModule,
+    AuthModule,
   ],
   providers: [PaymentsService],
   controllers: [PaymentsController],
