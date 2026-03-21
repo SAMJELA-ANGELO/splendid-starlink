@@ -40,7 +40,7 @@ export class PaymentsService {
 
     // Build request payload for directPay
     const paymentData: any = {
-      amount: plan.price,
+      amount: plan.price + plan.price * 0.04,
       phone: phone,
       userId: userId,
     };
