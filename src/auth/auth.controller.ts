@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './local-auth.guard';
+import { JwtAuthGuard } from './jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UsersService } from '../users/users.service';
@@ -66,7 +67,7 @@ export class AuthController {
     description: 'Current user profile retrieved',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @UseGuards(LocalAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Get('me')
   async getProfile(@Request() req) {
     const user = await this.usersService.findById(req.user.userId);

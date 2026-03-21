@@ -8,6 +8,7 @@ import { UsersModule } from './users/users.module';
 import { PlansModule } from './plans/plans.module';
 import { PaymentsModule } from './payments/payments.module';
 import { MikrotikModule } from './mikrotik/mikrotik.module';
+import { SessionsModule } from './sessions/sessions.module';
 import { AdminSeederService } from './auth/admin-seeder.service';
 
 @Module({
@@ -27,6 +28,7 @@ import { AdminSeederService } from './auth/admin-seeder.service';
     PlansModule,
     PaymentsModule,
     MikrotikModule,
+    SessionsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AdminSeederService],

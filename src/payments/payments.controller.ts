@@ -88,4 +88,17 @@ export class PaymentsController {
   async handleWebhook(@Body() body: WebhookDto) {
     return this.paymentsService.handleWebhookNotification(body);
   }
+
+  @ApiOperation({ summary: 'Get user purchase history' })
+  @ApiResponse({
+    status: 200,
+    description: 'User purchase history retrieved',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiSecurity('JWT')
+  @UseGuards(JwtAuthGuard)
+  @Get('user')
+  async getUserPurchases(@Request() req) {
+    return this.paymentsService.getUserPurchases(req.user.userId);
+  }
 }

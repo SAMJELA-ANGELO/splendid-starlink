@@ -225,4 +225,34 @@ export class PaymentsService {
       throw error;
     }
   }
+
+  async getUserPurchases(userId: string) {
+    try {
+      const payments = await this.paymentModel.find({ userId }).sort({ createdAt: -1 }).exec();
+      
+      // Transform payments to include user's purchased bundles for status
+      const user = await this.usersService.findById(userId);
+      const purchasedBundles = user?.purchasedBundles || [];
+      
+      return payments.map(payment => {
+        const bundleInfo = purchasedBundles.find(bundle => bundle.plan === payment.planId);
+        return {
+          id: payment._id,
+          userId: payment.userId,
+          bundleId: payment.planId,
+          amount: payment.amount,
+          status: bundleInfo?.status || payment.status,
+          paymentMethod: 'mobile_money',
+          transactionId: payment.fapshiTransactionId,
+          createdAt: payment.createdAt,
+          expiresAt: user?.sessionExpiry,
+          serviceFee: payment.amount * 0.04,
+          totalAmount: payment.amount * 1.04,
+          feePercentage: 4
+        };
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
 }
