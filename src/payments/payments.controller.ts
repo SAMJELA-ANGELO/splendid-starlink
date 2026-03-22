@@ -8,6 +8,7 @@ import {
   ApiSecurity,
   ApiBody,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
@@ -34,6 +35,7 @@ export class PaymentsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 400, description: 'Invalid plan or request' })
   @ApiSecurity('JWT')
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 payment initiations per minute
   @UseGuards(JwtAuthGuard)
   @Post('initiate')
   async initiate(@Body() body: InitiatePaymentDto, @Request() req) {
@@ -173,6 +175,7 @@ export class PaymentsController {
     }
   })
   @ApiSecurity('JWT')
+  @Throttle({ default: { limit: 3, ttl: 60000 } }) // 3 buy-for-others requests per minute
   @UseGuards(JwtAuthGuard)
   @Post('buy-for-others')
   async buyForOthers(@Request() req, @Body() buyForOthersDto: BuyForOthersDto) {

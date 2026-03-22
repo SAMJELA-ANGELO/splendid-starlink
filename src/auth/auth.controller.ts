@@ -7,6 +7,7 @@ import {
   ApiBearerAuth,
   ApiSecurity,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './local-auth.guard';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -28,37 +29,33 @@ export class AuthController {
     status: 200,
     description: 'Login successful, JWT token returned',
     schema: {
-      example: { access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+      example: { 
+        success: true,
+        message: 'Login successful',
+        data: { access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+        user: { id: '507f1f77bcf86cd799439011', username: 'john_doe', isActive: true }
+      },
     },
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  @ApiResponse({ status: 400, description: 'Missing username or password' })
-  @ApiResponse({ status: 500, description: 'Internal server error' })
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 login attempts per minute
   @UseGuards(LocalAuthGuard)
   @Post('login')
-  async login(@Request() req, @Body() body: LoginDto) {
-    try {
-      if (!body.username || !body.password) {
-        throw new BadRequestException('Username and password are required');
+  async login(@Request() req) {
+    // LocalAuthGuard handles authentication and returns 401 if invalid
+    // If we reach here, authentication was successful
+    const result = await this.authService.login(req.user);
+    
+    return {
+      success: true,
+      message: 'Login successful',
+      data: result,
+      user: {
+        id: (req.user._id as unknown as string),
+        username: req.user.username,
+        isActive: req.user.isActive
       }
-
-      const result = await this.authService.login(req.user);
-      return {
-        success: true,
-        message: 'Login successful',
-        data: result,
-        user: {
-          id: (req.user._id as unknown as string),
-          username: req.user.username,
-          isActive: req.user.isActive
-        }
-      };
-    } catch (error) {
-      if (error instanceof UnauthorizedException) {
-        throw new UnauthorizedException('Invalid username or password');
-      }
-      throw new InternalServerErrorException('Login failed. Please try again later.');
-    }
+    };
   }
 
   @ApiOperation({ summary: 'Register a new user account' })
@@ -86,6 +83,7 @@ export class AuthController {
     status: 500,
     description: 'Registration failed',
   })
+  @Throttle({ default: { limit: 3, ttl: 60000 } }) // 3 signup attempts per minute
   @Post('register')
   async register(@Body() body: SignupDto) {
     try {

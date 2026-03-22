@@ -1,6 +1,11 @@
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
+import helmet from 'helmet';
+import * as cors from 'cors';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -11,14 +16,27 @@ async function bootstrap() {
       'http://localhost:3000', // Next.js default dev port
       'http://localhost:3001', // Alternative dev port
       'http://localhost:3002', // Another common dev port
-      'https://splendid-starlink-frontend.onrender.com', // If you deploy frontend to Render
-      'https://splendid-starlink.vercel.app', // If you deploy to Vercel
-      'https://splendid-starlink.netlify.app', // If you deploy to Netlify
+      'https://splendid-starlink.onrender.com', // Deployed frontend
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true,
   });
+
+  // Security middleware
+  app.use(helmet());
+
+  // Global validation pipe
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
+  // Rate limiting is handled by decorators on specific endpoints
+  // No global guard needed - using @Throttle decorators on controllers
 
   // Set global prefix for all routes first
   app.setGlobalPrefix('api');
