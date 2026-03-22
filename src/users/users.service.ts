@@ -40,20 +40,52 @@ export class UsersService {
     amount: number;
     duration: number;
     status: string;
+    sessionStart?: Date;
+    sessionEnd?: Date;
   }): Promise<User | null> {
+    const bundleToAdd: any = {
+      plan: bundleData.plan,
+      planName: bundleData.planName,
+      purchasedAt: bundleData.purchasedAt,
+      amount: bundleData.amount,
+      duration: bundleData.duration,
+      status: bundleData.status
+    };
+
+    // Add session times if they exist (only for successful payments)
+    if (bundleData.sessionStart) {
+      bundleToAdd.sessionStart = bundleData.sessionStart;
+    }
+    if (bundleData.sessionEnd) {
+      bundleToAdd.sessionEnd = bundleData.sessionEnd;
+    }
+
     return this.userModel.findByIdAndUpdate(
       userId,
       {
         $push: {
-          purchasedBundles: {
-            plan: bundleData.plan,
-            planName: bundleData.planName,
-            purchasedAt: bundleData.purchasedAt,
-            amount: bundleData.amount,
-            duration: bundleData.duration,
-            status: bundleData.status
-          }
+          purchasedBundles: bundleToAdd
         }
+      },
+      { new: true }
+    ).exec();
+  }
+
+  async findActiveUsersWithExpiredSessions(currentTime: Date): Promise<User[]> {
+    return this.userModel.find({
+      isActive: true,
+      sessionExpiry: { $lt: currentTime }
+    }).exec();
+  }
+
+  async updateExpiredBundle(userId: string): Promise<User | null> {
+    return this.userModel.findOneAndUpdate(
+      { 
+        _id: userId,
+        'purchasedBundles.status': 'active'
+      },
+      { 
+        $set: { 'purchasedBundles.$.status': 'expired' }
       },
       { new: true }
     ).exec();

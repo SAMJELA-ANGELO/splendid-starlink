@@ -1,9 +1,11 @@
-import { Controller, Request, Post, UseGuards, Body, Get } from '@nestjs/common';
+import { Controller, Request, Post, UseGuards, Body, Get, BadRequestException, UnauthorizedException, ConflictException, InternalServerErrorException } from '@nestjs/common';
 import {
   ApiOperation,
   ApiResponse,
   ApiTags,
   ApiBody,
+  ApiBearerAuth,
+  ApiSecurity,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './local-auth.guard';
@@ -30,10 +32,33 @@ export class AuthController {
     },
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @ApiResponse({ status: 400, description: 'Missing username or password' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Request() req, @Body() body: LoginDto) {
-    return this.authService.login(req.user);
+    try {
+      if (!body.username || !body.password) {
+        throw new BadRequestException('Username and password are required');
+      }
+
+      const result = await this.authService.login(req.user);
+      return {
+        success: true,
+        message: 'Login successful',
+        data: result,
+        user: {
+          id: (req.user._id as unknown as string),
+          username: req.user.username,
+          isActive: req.user.isActive
+        }
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw new UnauthorizedException('Invalid username or password');
+      }
+      throw new InternalServerErrorException('Login failed. Please try again later.');
+    }
   }
 
   @ApiOperation({ summary: 'Register a new user account' })
@@ -43,22 +68,68 @@ export class AuthController {
     description: 'User successfully registered',
     schema: {
       example: {
-        message: 'User created',
+        success: true,
+        message: 'User created successfully',
         user: { id: '507f1f77bcf86cd799439011', username: 'john_doe' },
       },
     },
   })
   @ApiResponse({
     status: 400,
-    description: 'Invalid input or user already exists',
+    description: 'Invalid input data',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Username already exists',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Registration failed',
   })
   @Post('register')
   async register(@Body() body: SignupDto) {
-    const user = await this.usersService.create(body.username, body.password);
-    return {
-      message: 'User created',
-      user: { id: (user._id as unknown as string), username: user.username },
-    };
+    try {
+      // Validate input
+      if (!body.username || !body.password) {
+        throw new BadRequestException('Username and password are required');
+      }
+
+      if (body.username.length < 3) {
+        throw new BadRequestException('Username must be at least 3 characters long');
+      }
+
+      if (body.password.length < 6) {
+        throw new BadRequestException('Password must be at least 6 characters long');
+      }
+
+      // Check if username contains only valid characters
+      if (!/^[a-zA-Z0-9_]+$/.test(body.username)) {
+        throw new BadRequestException('Username can only contain letters, numbers, and underscores');
+      }
+
+      const user = await this.usersService.create(body.username, body.password);
+      
+      return {
+        success: true,
+        message: 'User created successfully',
+        user: { 
+          id: (user._id as unknown as string), 
+          username: user.username,
+          isActive: user.isActive
+        }
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      // Handle duplicate username error
+      if (error.code === 11000 || error.message.includes('duplicate')) {
+        throw new ConflictException('Username already exists. Please choose a different username.');
+      }
+      
+      throw new InternalServerErrorException('Registration failed. Please try again later.');
+    }
   }
 
   @ApiOperation({ summary: 'Get current user profile' })
@@ -67,6 +138,8 @@ export class AuthController {
     description: 'Current user profile retrieved',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiBearerAuth()
+  @ApiSecurity('JWT')
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getProfile(@Request() req) {

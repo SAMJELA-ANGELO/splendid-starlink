@@ -20,7 +20,10 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Setup Swagger
+  // Set global prefix for all routes first
+  app.setGlobalPrefix('api');
+
+  // Setup Swagger with global prefix consideration
   const config = new DocumentBuilder()
     .setTitle('Starlink Wi-Fi Hotspot API')
     .setDescription(
@@ -39,13 +42,11 @@ async function bootstrap() {
     .addTag('Users', 'User management endpoints')
     .addTag('Plans', 'Internet bundle plans')
     .addTag('Payments', 'Payment processing endpoints')
+    .addTag('Sessions', 'Session management endpoints')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
-
-  // Set global prefix for all routes
-  app.setGlobalPrefix('api');
 
   await app.listen(process.env.PORT ?? 3000);
 }

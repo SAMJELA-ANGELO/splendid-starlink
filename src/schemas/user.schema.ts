@@ -19,7 +19,7 @@ export class User {
 
   @Prop({
     type: [
-      { plan: String, purchasedAt: Date, amount: Number, duration: Number, status: String },
+      { plan: String, purchasedAt: Date, amount: Number, duration: Number, status: String, sessionStart: Date, sessionEnd: Date },
     ],
     default: [],
   })
@@ -29,6 +29,8 @@ export class User {
     amount: number;
     duration: number;
     status: string;
+    sessionStart?: Date;
+    sessionEnd?: Date;
   }[];
 }
 

@@ -1,12 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ConflictException, InternalServerErrorException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Payment, PaymentDocument } from '../schemas/payment.schema';
-import { UsersService } from '../users/users.service';
-import { PlansService } from '../plans/plans.service';
-import { MikrotikService } from '../mikrotik/mikrotik.service';
-import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
+import { Payment, PaymentDocument } from '../schemas/payment.schema';
+import { PlansService } from '../plans/plans.service';
+import { UsersService } from '../users/users.service';
+import { MikrotikService } from '../mikrotik/mikrotik.service';
 
 @Injectable()
 export class PaymentsService {
@@ -221,26 +221,30 @@ export class PaymentsService {
       const plan = await this.plansService.findById(payment.planId);
       if (!plan) throw new Error('Plan not found');
 
-      const expiry = new Date();
-      expiry.setHours(expiry.getHours() + plan.duration);
+      const sessionStart = new Date();
+      const sessionEnd = new Date(sessionStart);
+      sessionEnd.setHours(sessionEnd.getHours() + plan.duration);
 
-      // Add purchased bundle to user record
+      // Add purchased bundle to user record with session times
       await this.usersService.addPurchasedBundle(payment.userId, {
         plan: payment.planId,
         planName: plan.name,
         purchasedAt: new Date(),
         amount: payment.amount,
         duration: plan.duration,
-        status: 'active'
+        status: 'active',
+        sessionStart: sessionStart,
+        sessionEnd: sessionEnd
       });
 
       await this.usersService.updateUser(payment.userId, {
         isActive: true,
-        sessionExpiry: expiry,
+        sessionExpiry: sessionEnd,
       });
       await this.mikrotikService.activateUser(payment.userId, plan.duration);
 
       console.log('User activated:', payment.userId);
+      console.log('Session times:', { start: sessionStart, end: sessionEnd });
     } catch (error: any) {
       console.error('Error activating user access:', error.message);
       throw error;
@@ -298,6 +302,113 @@ export class PaymentsService {
       });
     } catch (error) {
       throw error;
+    }
+  }
+
+  async buyForOthers(purchaserId: string, buyForOthersDto: any) {
+    try {
+      console.log('Starting buyForOthers process:', buyForOthersDto);
+      
+      const { targetUsername, targetPassword, phoneNumber, planId } = buyForOthersDto;
+
+      // Check if target user already exists
+      console.log('Checking if target user exists:', targetUsername);
+      const existingUser = await this.usersService.findByUsername(targetUsername);
+      if (existingUser) {
+        console.log('Target user already exists:', existingUser.username);
+        throw new ConflictException('Target user already exists. Please choose a different username.');
+      }
+
+      // Get plan details
+      console.log('Getting plan details for planId:', planId);
+      const plan = await this.plansService.findById(planId);
+      if (!plan) {
+        console.log('Plan not found:', planId);
+        throw new BadRequestException('Selected plan not found');
+      }
+      console.log('Plan found:', plan);
+
+      // Create new target user
+      console.log('Creating new target user:', targetUsername);
+      const targetUser = await this.usersService.create(targetUsername, targetPassword);
+      console.log('Target user created:', targetUser);
+      
+      // Calculate total amount with service fee
+      const serviceFee = plan.price * 0.04;
+      const totalAmount = plan.price + serviceFee;
+      console.log('Payment amounts calculated:', { serviceFee, totalAmount });
+
+      // Create payment record for the target user
+      console.log('Creating payment record...');
+      const payment = new this.paymentModel({
+        userId: targetUser._id,
+        planId: planId,
+        amount: totalAmount,
+        status: 'pending',
+        paymentMethod: 'mobile_money',
+        purchasedBy: purchaserId, // Track who purchased this
+      });
+
+      await payment.save();
+      console.log('Payment record created:', payment);
+
+      // Initiate payment with Fapshi
+      console.log('Initiating Fapshi payment...');
+      const fapshiData = {
+        amount: totalAmount,
+        phone: phoneNumber,
+        userId: targetUser._id.toString(),
+        email: `${targetUsername}@starlink.local`,
+        reason: `Bundle purchase for ${targetUsername} - ${plan.name}`,
+      };
+      console.log('Fapshi request data:', fapshiData);
+
+      const response = await axios.post(
+        `${this.configService.get('FAPSHI_BASE_URL')}/direct-pay`,
+        fapshiData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            apiuser: this.configService.get('FAPSHI_APIUSER'),
+            apikey: this.configService.get('FAPSHI_APIKEY'),
+          },
+          timeout: 10000,
+        },
+      );
+
+      console.log('Fapshi response:', response.data);
+
+      // Update payment with Fapshi transaction ID
+      payment.fapshiTransactionId = response.data.transId;
+      payment.fapshiResponse = response.data;
+      await payment.save();
+      console.log('Payment updated with transaction ID');
+
+      return {
+        success: true,
+        message: 'Payment request sent to mobile phone. Target user created successfully.',
+        data: {
+          transactionId: response.data.transId,
+          targetUserId: targetUser._id,
+          targetUsername: targetUser.username,
+          planName: plan.name,
+          amount: totalAmount,
+          phoneNumber: phoneNumber
+        }
+      };
+    } catch (error) {
+      console.error('BuyForOthers error:', error);
+      
+      if (error instanceof BadRequestException || error instanceof ConflictException) {
+        throw error;
+      }
+      
+      // Log the full error for debugging
+      if (error.response) {
+        console.error('Fapshi API error:', error.response.data);
+      }
+      
+      throw new InternalServerErrorException('Failed to process payment for target user. Please try again.');
     }
   }
 }
