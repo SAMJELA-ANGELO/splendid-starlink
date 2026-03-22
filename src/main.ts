@@ -16,7 +16,9 @@ async function bootstrap() {
       'http://localhost:3000', // Next.js default dev port
       'http://localhost:3001', // Alternative dev port
       'http://localhost:3002', // Another common dev port
-      'https://splendid-starlink.onrender.com', // Deployed frontend
+      'https://splendid-starlink.onrender.com', // Deployed frontend on Render
+      'https://splendidstarlink.netlify.app', // Deployed frontend on Netlify
+      'https://splendidstarlink.org', // Custom domain
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
