@@ -14,31 +14,24 @@ export class SessionsService {
   async getCurrentSession(userId: string): Promise<Session | null> {
     try {
       const user = await this.usersService.findById(userId);
-      if (!user || !user.isActive) {
+      if (!user) {
         return null;
       }
 
       // Check if user has active session
-      if (user.sessionExpiry && new Date() < user.sessionExpiry) {
-        return {
-          id: userId,
-          userId: userId,
-          startTime: user.sessionExpiry,
-          endTime: undefined,
-          dataUsed: 0,
-          isActive: true,
-          remainingTime: Math.max(0, user.sessionExpiry.getTime() - new Date().getTime()),
-        };
-      }
+      const isSessionActive = user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
+      const now = new Date();
+      const sessionExpiry = user.sessionExpiry || now;
+      const remainingTime = isSessionActive ? Math.max(0, sessionExpiry.getTime() - now.getTime()) : 0;
 
       return {
         id: userId,
         userId: userId,
-        startTime: user.sessionExpiry,
+        startTime: sessionExpiry,
         endTime: undefined,
         dataUsed: 0,
-        isActive: false,
-        remainingTime: 0,
+        isActive: isSessionActive,
+        remainingTime: remainingTime,
       };
     } catch (error) {
       return null;
@@ -48,15 +41,15 @@ export class SessionsService {
   async getSessionStatus(userId: string): Promise<{ isActive: boolean; remainingTime?: number }> {
     try {
       const user = await this.usersService.findById(userId);
-      if (!user || !user.isActive) {
+      if (!user) {
         return { isActive: false };
       }
 
-      const isActive = user.sessionExpiry && new Date() < user.sessionExpiry;
-      const remainingTime = isActive ? 
+      const isSessionActive = user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
+      const remainingTime = isSessionActive ? 
         Math.max(0, user.sessionExpiry.getTime() - new Date().getTime()) : 0;
 
-      return { isActive, remainingTime };
+      return { isActive: isSessionActive, remainingTime };
     } catch (error) {
       return { isActive: false };
     }

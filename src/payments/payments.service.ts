@@ -135,15 +135,20 @@ export class PaymentsService {
 
   async handleWebhookNotification(data: any) {
     try {
+      console.log('Webhook received:', data);
+      
       // Validate transId format
       if (!data?.transId || typeof data.transId !== 'string') {
+        console.error('Invalid transId in webhook:', data);
         throw new Error('Invalid transId');
       }
       if (!/^[a-zA-Z0-9]{8,10}$/.test(data.transId)) {
+        console.error('Invalid transaction id format:', data.transId);
         throw new Error('Invalid transaction id format');
       }
 
       // Get the transaction status from Fapshi API to verify source
+      console.log('Fetching payment status from Fapshi for transId:', data.transId);
       const statusResponse = await axios.get(
         `${this.configService.get('FAPSHI_BASE_URL')}/payment-status/${data.transId}`,
         {
@@ -156,6 +161,8 @@ export class PaymentsService {
         },
       );
 
+      console.log('Fapshi status response:', statusResponse.data);
+
       const payment = await this.paymentModel.findOne({
         fapshiTransactionId: data.transId,
       });
@@ -164,6 +171,9 @@ export class PaymentsService {
         return { success: false, message: 'Payment not found' };
       }
 
+      console.log('Found payment record:', payment);
+      console.log('Payment status from Fapshi:', statusResponse.data.status);
+
       // Update payment status (normalize to enum: lowercase for initial states)
       const statusValue = statusResponse.data.status;
       payment.status = statusValue && ['created', 'pending'].includes(statusValue.toLowerCase())
@@ -171,21 +181,32 @@ export class PaymentsService {
         : statusValue;
       payment.fapshiResponse = statusResponse.data;
       await payment.save();
+      console.log('Updated payment status to:', statusValue);
 
       // Handle different statuses
       switch (statusResponse.data.status) {
         case 'SUCCESSFUL':
+        case 'SUCCESS':
+          console.log('Activating user access for successful payment...');
           await this.activateUserAccess(payment);
           console.log('Payment successful:', data.transId);
           break;
         case 'FAILED':
-          console.log('Payment failed:', data.transId);
+          console.log('Recording failed payment:', data.transId);
+          await this.recordPaymentTransaction(payment, 'failed');
+          break;
+        case 'PENDING':
+          console.log('Recording pending payment:', data.transId);
+          await this.recordPaymentTransaction(payment, 'pending');
           break;
         case 'EXPIRED':
-          console.log('Payment expired:', data.transId);
+          console.log('Recording expired payment:', data.transId);
+          await this.recordPaymentTransaction(payment, 'expired');
           break;
         default:
-          console.log('Unknown payment status:', statusResponse.data.status);
+          console.log('Recording unknown payment status:', statusResponse.data.status);
+          await this.recordPaymentTransaction(payment, statusResponse.data.status.toLowerCase());
+          break;
       }
 
       return { success: true, status: statusResponse.data.status };
@@ -223,6 +244,30 @@ export class PaymentsService {
     } catch (error: any) {
       console.error('Error activating user access:', error.message);
       throw error;
+    }
+  }
+
+  private async recordPaymentTransaction(payment: PaymentDocument, status: string) {
+    try {
+      const plan = await this.plansService.findById(payment.planId);
+      if (!plan) {
+        console.error('Plan not found for payment recording:', payment.planId);
+        return;
+      }
+
+      // Add transaction to user record for all statuses
+      await this.usersService.addPurchasedBundle(payment.userId, {
+        plan: payment.planId,
+        planName: plan.name,
+        purchasedAt: new Date(),
+        amount: payment.amount,
+        duration: plan.duration,
+        status: status // 'active', 'failed', 'pending', 'expired'
+      });
+
+      console.log(`Payment transaction recorded with status: ${status}`);
+    } catch (error: any) {
+      console.error('Error recording payment transaction:', error.message);
     }
   }
 
