@@ -16,7 +16,7 @@ async function bootstrap() {
       'http://localhost:3002', // Another common dev port
       'https://splendid-starlink-frontend.onrender.com', // If you deploy frontend to Render
       'https://splendid-starlink.vercel.app', // If you deploy to Vercel
-      'https://splendid-starlink.netlify.app', // If you deploy to Netlify
+      'https://splendidstarlink.netlify.app/', // If you deploy to Netlify
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
