@@ -21,8 +21,8 @@ export class Payment {
   })
   status: string;
 
-  @Prop()
-  fapshiTransactionId?: string;
+  @Prop({ required: true })
+  fapshiTransactionId: string;
 
   @Prop()
   email?: string;
@@ -38,9 +38,6 @@ export class Payment {
 
   @Prop({ type: Date, default: Date.now })
   createdAt: Date;
-
-  @Prop()
-  purchasedBy?: string; // Track who purchased this (for buy-for-others feature)
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);

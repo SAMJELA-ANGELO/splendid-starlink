@@ -17,9 +17,12 @@ export class User {
   @Prop({ type: Date, default: null })
   sessionExpiry: Date;
 
+  @Prop({ default: false })
+  mikrotikCreated: boolean;
+
   @Prop({
     type: [
-      { plan: String, purchasedAt: Date, amount: Number, duration: Number, status: String, sessionStart: Date, sessionEnd: Date },
+      { plan: String, purchasedAt: Date, amount: Number, duration: Number },
     ],
     default: [],
   })
@@ -28,9 +31,6 @@ export class User {
     purchasedAt: Date;
     amount: number;
     duration: number;
-    status: string;
-    sessionStart?: Date;
-    sessionEnd?: Date;
   }[];
 }
 

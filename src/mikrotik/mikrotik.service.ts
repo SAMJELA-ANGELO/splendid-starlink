@@ -1,178 +1,175 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Connection } from 'mikrotik';
+import axios from 'axios';
 
 @Injectable()
 export class MikrotikService implements OnModuleInit {
-  private connection: Connection;
   private logger = new Logger('MikrotikService');
+  private proxyUrl: string = '';
 
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
-    try {
-      this.connection = new Connection({
-        host: this.configService.get('MIKROTIK_HOST'),
-        user: this.configService.get('MIKROTIK_USER'),
-        password: this.configService.get('MIKROTIK_PASSWORD'),
-        port: Number(this.configService.get('MIKROTIK_API_PORT') || 8728),
-      });
-
-      // Handle connection errors without crashing
-      this.connection.on('error', (error: any) => {
-        this.logger.warn(
-          `MikroTik connection error: ${error.message}. Hotspot features temporarily unavailable.`,
-        );
-      });
-
-      await this.connection.connect();
-      this.logger.log('MikroTik router connected successfully');
-    } catch (error: any) {
-      this.logger.warn(
-        `Failed to connect to MikroTik router: ${error.message}. Hotspot features will be unavailable.`,
+    // Use the .NET MikroTik service (Tik4Net) via HTTP proxy
+    const urlFromConfig = this.configService.get<string>('MIKROTIK_PROXY_URL');
+    if (!urlFromConfig) {
+      this.logger.error(
+        'MIKROTIK_PROXY_URL environment variable is not configured. MikroTik features will be unavailable.',
       );
+      throw new Error(
+        'MIKROTIK_PROXY_URL is required to communicate with MikroTik service',
+      );
+    }
+    this.proxyUrl = urlFromConfig;
+    this.logger.log(`MikroTik service configured with proxy URL: ${this.proxyUrl}`);
+  }
+
+  async createUser(username: string, password: string) {
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/users`;
+    this.logger.log(`🔌 Creating MikroTik user: ${username}`);
+    try {
+      this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
+      const resp = await axios.post(url, { username, password });
+      this.logger.log(`  ✅ MikroTik user created successfully: ${username}`);
+      return resp.data;
+    } catch (err: any) {
+      this.logger.error(
+        `❌ Failed to create MikroTik user ${username}: ${err?.response?.data?.error || err.message}`,
+      );
+      throw err;
     }
   }
 
   async activateUser(username: string, durationHours: number) {
-    if (!this.connection) {
-      this.logger.warn(
-        `Cannot activate user ${username}: MikroTik router not connected`,
-      );
-      throw new Error('MikroTik router not connected');
-    }
-
-    // Check if connection is ready
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/activate`;
+    this.logger.log(`⏱️ Activating MikroTik user: ${username} (${durationHours}h)`);
     try {
-      await this.connection.connect();
-      this.logger.log('MikroTik connection verified before activation');
-    } catch (connectError) {
-      this.logger.warn(`MikroTik connection failed: ${connectError.message}`);
-      throw new Error('Failed to connect to MikroTik router');
-    }
-
-    const profile = `profile-${durationHours}h`;
-    const uptimeLimit = `${durationHours}h`;
-
-    try {
-      this.logger.log(`Activating user ${username} with profile ${profile} for ${uptimeLimit}`);
-
-      // Use the correct Mikrotik API method
-      const result = await this.connection.write('/ip/hotspot/user/add', [
-        `=name=${username}`,
-        `=password=${username}`,
-        `=profile=${profile}`,
-        `=limit-uptime=${uptimeLimit}`,
-      ]);
-
-      this.logger.log(`Successfully activated user ${username}, result:`, result);
+      this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
+      const resp = await axios.post(url, { username, durationHours });
+      this.logger.log(`  ✅ User activated: ${username} for ${durationHours} hours`);
+      return resp.data;
     } catch (err: any) {
-      if (err.message && err.message.includes('already exists')) {
-        this.logger.log(`User ${username} already exists, updating profile`);
-        try {
-          const updateResult = await this.connection.write('/ip/hotspot/user/set', [
-            `=numbers=${username}`,
-            `=password=${username}`,
-            `=profile=${profile}`,
-            `=limit-uptime=${uptimeLimit}`,
-          ]);
-          this.logger.log(`Successfully updated user ${username}, result:`, updateResult);
-        } catch (updateErr) {
-          this.logger.error(`Failed to update user ${username}: ${updateErr.message}`);
-          throw updateErr;
-        }
-      } else {
-        this.logger.error(`Failed to activate user ${username}: ${err.message}`);
-        this.logger.error('Full error details:', err);
-        throw err;
-      }
+      this.logger.error(
+        `❌ Failed to activate user ${username}: ${err?.response?.data?.error || err.message}`,
+      );
+      throw err;
     }
   }
 
   async deactivateUser(username: string) {
-    if (!this.connection) {
-      this.logger.warn(
-        `Cannot deactivate user ${username}: MikroTik router not connected`,
-      );
-      throw new Error('MikroTik router not connected');
-    }
-
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/deactivate`;
+    this.logger.warn(`⛔ DEPRECATED: Deactivating user ${username}`);
     try {
-      this.logger.log(`Deactivating user ${username}`);
-      await this.connection.write('/ip/hotspot/user/remove', [
-        '=numbers=' + username,
-      ]);
-      this.logger.log(`Successfully deactivated user ${username}`);
+      this.logger.log(`  1️⃣ Sending DELETE request to: ${url}`);
+      const resp = await axios.delete(url, { data: { username } });
+      this.logger.log(`  ✅ User deactivated: ${username}`);
+      return resp.data;
     } catch (err: any) {
-      this.logger.error(`Failed to deactivate user ${username}: ${err.message}`);
+      this.logger.error(
+        `❌ Failed to deactivate user ${username}: ${err?.response?.data?.error || err.message}`,
+      );
+      throw err;
+    }
+  }
+
+  async disableUser(username: string) {
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/disable`;
+    this.logger.log(`🔒 Disabling MikroTik user: ${username} (keeping account)`);
+    try {
+      this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
+      const resp = await axios.post(url, { username });
+      this.logger.log(`  ✅ User disabled (account retained): ${username}`);
+      return resp.data;
+    } catch (err: any) {
+      this.logger.error(
+        `❌ Failed to disable user ${username}: ${err?.response?.data?.error || err.message}`,
+      );
+      throw err;
+    }
+  }
+
+  async deleteUser(username: string) {
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/delete`;
+    this.logger.log(`🗑️ Permanently deleting MikroTik user: ${username}`);
+    try {
+      this.logger.log(`  1️⃣ Sending DELETE request to: ${url}`);
+      const resp = await axios.delete(url, { data: { username } });
+      this.logger.log(`  ✅ User permanently deleted: ${username}`);
+      return resp.data;
+    } catch (err: any) {
+      this.logger.error(
+        `❌ Failed to delete user ${username}: ${err?.response?.data?.error || err.message}`,
+      );
       throw err;
     }
   }
 
   async testConnection() {
-    if (!this.connection) {
-      throw new Error('MikroTik router not connected');
-    }
-
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/test-connection`;
+    this.logger.log(`🌐 Testing MikroTik connection`);
     try {
-      const result = await this.connection.write('/system/identity/print');
-      this.logger.log('MikroTik connection test successful');
-      return { connected: true, identity: result };
+      this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
+      const resp = await axios.get(url);
+      this.logger.log(`✅ MikroTik connection test successful`);
+      return resp.data;
     } catch (err: any) {
-      this.logger.error(`MikroTik connection test failed: ${err.message}`);
+      this.logger.error(
+        `❌ Connection test failed: ${err?.response?.data?.error || err.message}`,
+      );
       throw err;
     }
   }
 
   async listHotspotUsers() {
-    if (!this.connection) {
-      throw new Error('MikroTik router not connected');
-    }
-
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/users`;
+    this.logger.log(`📋 Listing all MikroTik hotspot users`);
     try {
-      const users = await this.connection.write('/ip/hotspot/user/print');
-      this.logger.log(`Retrieved ${users.length} hotspot users`);
-      return users;
+      this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
+      const resp = await axios.get(url);
+      const userList = resp.data.users || resp.data;
+      const count = Array.isArray(userList) ? userList.length : 0;
+      this.logger.log(`✅ Retrieved ${count} hotspot users`);
+      return userList;
     } catch (err: any) {
-      this.logger.error(`Failed to list hotspot users: ${err.message}`);
+      this.logger.error(
+        `❌ Failed to list hotspot users: ${err?.response?.data?.error || err.message}`,
+      );
       throw err;
     }
   }
 
   async getUserDetails(username: string) {
-    if (!this.connection) {
-      throw new Error('MikroTik router not connected');
-    }
-
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/users/${encodeURIComponent(
+      username,
+    )}`;
+    this.logger.log(`🔍 Getting details for MikroTik user: ${username}`);
     try {
-      const users = await this.connection.write('/ip/hotspot/user/print', [
-        '?name=' + username,
-      ]);
-
-      if (users && users.length > 0) {
-        this.logger.log(`Found user ${username} details`);
-        return users[0];
-      } else {
-        this.logger.log(`User ${username} not found`);
-        return null;
-      }
+      this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
+      const resp = await axios.get(url);
+      this.logger.log(`✅ User details retrieved: ${username}`);
+      return resp.data.user || resp.data;
     } catch (err: any) {
-      this.logger.error(`Failed to get user details for ${username}: ${err.message}`);
+      this.logger.error(
+        `❌ Failed to get user details for ${username}: ${err?.response?.data?.error || err.message}`,
+      );
       throw err;
     }
   }
 
   async getActiveUsers() {
-    if (!this.connection) {
-      throw new Error('MikroTik router not connected');
-    }
-
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/active-users`;
+    this.logger.log(`🟢 Getting active MikroTik users`);
     try {
-      const activeUsers = await this.connection.write('/ip/hotspot/active/print');
-      this.logger.log(`Retrieved ${activeUsers.length} active hotspot users`);
-      return activeUsers;
+      this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
+      const resp = await axios.get(url);
+      const activeList = resp.data.activeUsers || resp.data;
+      const count = Array.isArray(activeList) ? activeList.length : 0;
+      this.logger.log(`✅ Retrieved ${count} active users`);
+      return activeList;
     } catch (err: any) {
-      this.logger.error(`Failed to get active users: ${err.message}`);
+      this.logger.error(
+        `❌ Failed to get active users: ${err?.response?.data?.error || err.message}`,
+      );
       throw err;
     }
   }

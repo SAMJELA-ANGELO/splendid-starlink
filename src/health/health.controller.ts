@@ -1,9 +1,11 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Logger } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {
+  private readonly logger = new Logger(HealthController.name);
+
   @ApiOperation({ summary: 'Health check endpoint' })
   @ApiResponse({
     status: 200,
@@ -21,6 +23,7 @@ export class HealthController {
   })
   @Get()
   getHealth() {
+    this.logger.log(`🏥 Health check requested`);
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -41,6 +44,7 @@ export class HealthController {
   })
   @Get('ping')
   ping() {
+    this.logger.log(`🔔 Ping request received`);
     return { message: 'pong' };
   }
 
@@ -51,6 +55,7 @@ export class HealthController {
   })
   @Get('detailed')
   async getDetailedHealth() {
+    this.logger.log(`🔍 Detailed health check requested`);
     // This could be expanded to check database, external services, etc.
     const health = {
       status: 'ok',
@@ -65,6 +70,7 @@ export class HealthController {
         fapshi: 'available' // Could add actual Fapshi health check
       }
     };
+    this.logger.log(`✅ Detailed health check complete`);
     return health;
   }
 }

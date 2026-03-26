@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { UsersService } from '../users/users.service';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { User, UserDocument } from '../schemas/user.schema';
 import { MikrotikService } from '../mikrotik/mikrotik.service';
 
 @Injectable()
@@ -8,78 +10,82 @@ export class SessionCleanupService {
   private readonly logger = new Logger(SessionCleanupService.name);
 
   constructor(
-    private usersService: UsersService,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
     private mikrotikService: MikrotikService,
   ) {}
 
   /**
    * Run every minute to check for expired sessions
-   * This ensures users are deactivated promptly when their sessions expire
+   * This ensures users are disabled when their sessions expire
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSessionCleanup() {
     try {
-      this.logger.log('Starting session cleanup process...');
-      
-      const expiredUsers = await this.findExpiredUsers();
-      
+      const startTime = Date.now();
+      this.logger.log(`⏰ Starting session cleanup process...`);
+
+      const now = new Date();
+
+      // Find users who are active but their session has expired
+      this.logger.log(`  1️⃣ Querying database for expired sessions`);
+      const expiredUsers = await this.userModel
+        .find({
+          isActive: true,
+          sessionExpiry: { $lt: now },
+        })
+        .exec();
+
       if (expiredUsers.length === 0) {
-        this.logger.log('No expired sessions found');
+        const elapsed = Date.now() - startTime;
+        this.logger.log(`✅ No expired sessions found (${elapsed}ms)`);
         return;
       }
 
-      this.logger.log(`Found ${expiredUsers.length} expired users to deactivate`);
+      this.logger.log(`  ✅ Found ${expiredUsers.length} expired user(s) to disable`);
+      this.logger.log(`  2️⃣ Processing disabled users...`);
 
       for (const user of expiredUsers) {
-        await this.deactivateExpiredUser(user);
+        await this.disableExpiredUser(user);
       }
 
-      this.logger.log(`Successfully deactivated ${expiredUsers.length} expired users`);
-    } catch (error) {
-      this.logger.error('Error during session cleanup:', error);
+      const elapsed = Date.now() - startTime;
+      this.logger.log(`✅ Session cleanup complete - disabled ${expiredUsers.length} user(s) in ${elapsed}ms`);
+    } catch (error: any) {
+      this.logger.error(`❌ Error during session cleanup: ${error.message}`);
     }
   }
 
   /**
-   * Find users with expired sessions
+   * Disable a single expired user
    */
-  private async findExpiredUsers() {
-    const now = new Date();
-    
-    // Find users who are active but their session has expired
-    const expiredUsers = await this.usersService.findActiveUsersWithExpiredSessions(now);
-    
-    return expiredUsers;
-  }
-
-  /**
-   * Deactivate a single expired user
-   */
-  private async deactivateExpiredUser(user: any) {
+  private async disableExpiredUser(user: UserDocument) {
     try {
-      this.logger.log(`Deactivating expired user: ${user.username}`);
+      this.logger.log(`  ⏱️ Disabling expired session for: ${user.username} (expired: ${user.sessionExpiry})`);
 
-      // 1. Deactivate from Mikrotik router
+      // 1. Disable user on MikroTik (keep account, just disable access)
       try {
-        await this.mikrotikService.deactivateUser(user.username);
-        this.logger.log(`Successfully removed ${user.username} from Mikrotik hotspot`);
-      } catch (mikrotikError) {
-        this.logger.warn(`Failed to remove ${user.username} from Mikrotik: ${mikrotikError.message}`);
-        // Continue with database update even if Mikrotik fails
+        this.logger.log(`    1️⃣ Disabling user on MikroTik hotspot`);
+        await this.mikrotikService.disableUser(user.username);
+        this.logger.log(`    ✅ User disabled on MikroTik: ${user.username}`);
+      } catch (mikrotikError: any) {
+        this.logger.warn(
+          `    ⚠️ Failed to disable ${user.username} on MikroTik: ${mikrotikError.message} (will continue...)`,
+        );
+        // Continue with database update even if MikroTik fails
       }
 
       // 2. Update user status in database
-      await this.usersService.updateUser(user._id.toString(), {
+      this.logger.log(`    2️⃣ Updating user status in MongoDB`);
+      await this.userModel.findByIdAndUpdate(user._id, {
         isActive: false,
-        sessionExpiry: undefined,
+        sessionExpiry: null,
       });
 
-      // 3. Update purchased bundle status to 'expired'
-      await this.usersService.updateExpiredBundle(user._id.toString());
-
-      this.logger.log(`Successfully deactivated user ${user.username}`);
-    } catch (error) {
-      this.logger.error(`Failed to deactivate user ${user.username}:`, error);
+      this.logger.log(`  ✅ User deactivated: ${user.username}`);
+    } catch (error: any) {
+      this.logger.error(
+        `  ❌ Error deactivating user ${user.username}: ${error.message}`,
+      );
     }
   }
 
@@ -87,7 +93,7 @@ export class SessionCleanupService {
    * Manual cleanup method for testing or immediate cleanup
    */
   async manualCleanup() {
-    this.logger.log('Running manual session cleanup...');
+    this.logger.log(`🔧 Running manual session cleanup...`);
     await this.handleSessionCleanup();
   }
 }

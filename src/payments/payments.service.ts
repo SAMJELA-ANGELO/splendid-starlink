@@ -1,15 +1,16 @@
-import { Injectable, Logger, BadRequestException, ConflictException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { Payment, PaymentDocument } from '../schemas/payment.schema';
-import { PlansService } from '../plans/plans.service';
 import { UsersService } from '../users/users.service';
+import { PlansService } from '../plans/plans.service';
 import { MikrotikService } from '../mikrotik/mikrotik.service';
+import axios from 'axios';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PaymentsService {
+  private logger = new Logger('PaymentsService');
   constructor(
     @InjectModel(Payment.name) private paymentModel: Model<PaymentDocument>,
     private usersService: UsersService,
@@ -26,66 +27,82 @@ export class PaymentsService {
     externalId?: string,
     name?: string,
   ) {
-    const plan = await this.plansService.findById(planId);
-    if (!plan) throw new Error('Plan not found');
+    this.logger.log(`💶 Initiating payment for user ${userId}, plan ${planId}`);
+    try {
+      this.logger.log(`  1️⃣ Fetching plan: ${planId}`);
+      const plan = await this.plansService.findById(planId);
+      if (!plan) throw new Error('Plan not found');
+      this.logger.log(`  ✅ Plan found: ${plan.name} (${plan.price} XAF, ${plan.duration}h)`);
 
-    // Validation
-    if (!phone) throw new Error('Phone number is required for direct payment');
-    if (!Number.isInteger(plan.price)) {
-      throw new Error('Amount must be an integer');
-    }
-    if (plan.price < 100) {
-      throw new Error('Amount cannot be less than 100 XAF');
-    }
+      // Validation
+      if (!phone) throw new Error('Phone number is required for direct payment');
+      if (!Number.isInteger(plan.price)) {
+        throw new Error('Amount must be an integer');
+      }
+      if (plan.price < 100) {
+        throw new Error('Amount cannot be less than 100 XAF');
+      }
+      this.logger.log(`  ✅ Validation passed`);
 
-    // Build request payload for directPay
-    const paymentData: any = {
-      amount: plan.price + plan.price * 0.04,
-      phone: phone,
-      userId: userId,
-    };
+      // Build request payload for directPay
+      this.logger.log(`  2️⃣ Building Fapshi payment request for ${phone}`);
+      const paymentData: any = {
+        amount: plan.price,
+        phone: phone,
+        userId: userId,
+      };
 
-    if (email) paymentData.email = email;
-    if (externalId) paymentData.externalId = externalId;
-    if (name) paymentData.name = name;
+      if (email) paymentData.email = email;
+      if (externalId) paymentData.externalId = externalId;
+      if (name) paymentData.name = name;
 
-    // Call Fapshi API directPay endpoint (sends payment to mobile)
-    const fapshiResponse = await axios.post(
-      `${this.configService.get('FAPSHI_BASE_URL')}/direct-pay`,
-      paymentData,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          apiuser: this.configService.get('FAPSHI_APIUSER'),
-          apikey: this.configService.get('FAPSHI_APIKEY'),
+      // Call Fapshi API directPay endpoint (sends payment to mobile)
+      this.logger.log(`  3️⃣ Calling Fapshi direct-pay API`);
+      const fapshiResponse = await axios.post(
+        `${this.configService.get('FAPSHI_BASE_URL')}/direct-pay`,
+        paymentData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            apiuser: this.configService.get('FAPSHI_APIUSER'),
+            apikey: this.configService.get('FAPSHI_APIKEY'),
+          },
+          timeout: 10000,
         },
-        timeout: 10000,
-      },
-    );
+      );
+      this.logger.log(`  ✅ Fapshi response received: TransID ${fapshiResponse.data.transId}`);
 
-    // Create and save payment record
-    const payment = new this.paymentModel({
-      userId,
-      planId,
-      amount: plan.price,
-      email,
-      phone,
-      externalId,
-      status: (fapshiResponse.data.status || 'created').toLowerCase(),
-      fapshiTransactionId: fapshiResponse.data.transId,
-      fapshiResponse: fapshiResponse.data,
-    });
-    await payment.save();
+      // Create and save payment record
+      this.logger.log(`  4️⃣ Saving payment record to MongoDB`);
+      const payment = new this.paymentModel({
+        userId,
+        planId,
+        amount: plan.price,
+        email,
+        phone,
+        externalId,
+        status: (fapshiResponse.data.status || 'created').toLowerCase(),
+        fapshiTransactionId: fapshiResponse.data.transId,
+        fapshiResponse: fapshiResponse.data,
+      });
+      await payment.save();
+      this.logger.log(`✅ Payment initiated successfully: ${fapshiResponse.data.transId}`);
 
-    return {
-      paymentId: payment._id,
-      transId: fapshiResponse.data.transId,
-      message: 'Payment request sent to your mobile phone. Please complete payment on your device.',
-    };
+      return {
+        paymentId: payment._id,
+        transId: fapshiResponse.data.transId,
+        message: 'Payment request sent to your mobile phone. Please complete payment on your device.',
+      };
+    } catch (error: any) {
+      this.logger.error(`❌ Payment initiation failed for user ${userId}: ${error.message}`);
+      throw error;
+    }
   }
 
   async checkPaymentStatus(transactionId: string) {
+    this.logger.log(`🔍 Checking payment status for transaction: ${transactionId}`);
     try {
+      this.logger.log(`  1️⃣ Querying Fapshi API for status`);
       const response = await axios.get(
         `${this.configService.get('FAPSHI_BASE_URL')}/payment-status/${transactionId}`,
         {
@@ -97,58 +114,56 @@ export class PaymentsService {
           timeout: 10000,
         },
       );
+      this.logger.log(`  ✅ Status received from Fapshi: ${response.data.status}`);
 
+      this.logger.log(`  2️⃣ Looking up payment record in MongoDB`);
       const payment = await this.paymentModel.findOne({
         fapshiTransactionId: transactionId,
       });
-      if (!payment) return response.data;
+      if (!payment) {
+        this.logger.warn(`  ⚠️ Payment not found in database`);
+        return response.data;
+      }
+      this.logger.log(`  ✅ Payment found in database`);
 
       // Update payment status (normalize to enum: lowercase for initial states)
+      this.logger.log(`  3️⃣ Updating payment status in MongoDB`);
       const statusValue = response.data.status;
       payment.status = statusValue && ['created', 'pending'].includes(statusValue.toLowerCase())
         ? statusValue.toLowerCase()
         : statusValue;
       payment.fapshiResponse = response.data;
       await payment.save();
+      this.logger.log(`  ✅ Payment status updated: ${payment.status}`);
 
       // Activate user if payment succeeded
       if (response.data.status === 'SUCCESSFUL') {
-        const plan = await this.plansService.findById(payment.planId);
-        if (!plan) throw new Error('Plan not found');
-
-        const expiry = new Date();
-        expiry.setHours(expiry.getHours() + plan.duration);
-
-        await this.usersService.updateUser(payment.userId, {
-          isActive: true,
-          sessionExpiry: expiry,
-        });
-        await this.mikrotikService.activateUser(payment.userId, plan.duration);
+        this.logger.log(`  4️⃣ Payment successful - activating user access`);
+        await this.activateUserAccess(payment);
       }
 
+      this.logger.log(`✅ Payment status check complete: ${transactionId}`);
       return response.data;
     } catch (error: any) {
-      console.error('Fapshi status check error:', error.message);
+      this.logger.error(`❌ Payment status check failed for ${transactionId}: ${error.message}`);
       throw error;
     }
   }
 
   async handleWebhookNotification(data: any) {
+    this.logger.log(`🔔 Webhook notification received: ${data.transId}`);
     try {
-      console.log('Webhook received:', data);
-      
       // Validate transId format
       if (!data?.transId || typeof data.transId !== 'string') {
-        console.error('Invalid transId in webhook:', data);
         throw new Error('Invalid transId');
       }
       if (!/^[a-zA-Z0-9]{8,10}$/.test(data.transId)) {
-        console.error('Invalid transaction id format:', data.transId);
         throw new Error('Invalid transaction id format');
       }
+      this.logger.log(`  ✅ TransId format validated: ${data.transId}`);
 
       // Get the transaction status from Fapshi API to verify source
-      console.log('Fetching payment status from Fapshi for transId:', data.transId);
+      this.logger.log(`  1️⃣ Verifying transaction with Fapshi API`);
       const statusResponse = await axios.get(
         `${this.configService.get('FAPSHI_BASE_URL')}/payment-status/${data.transId}`,
         {
@@ -160,255 +175,92 @@ export class PaymentsService {
           timeout: 10000,
         },
       );
+      this.logger.log(`  ✅ Fapshi verification complete: ${statusResponse.data.status}`);
 
-      console.log('Fapshi status response:', statusResponse.data);
-
+      this.logger.log(`  2️⃣ Looking up payment in database`);
       const payment = await this.paymentModel.findOne({
         fapshiTransactionId: data.transId,
       });
       if (!payment) {
-        console.warn('Payment not found for transId:', data.transId);
+        this.logger.warn(`  ⚠️ Payment not found for transId: ${data.transId}`);
         return { success: false, message: 'Payment not found' };
       }
-
-      console.log('Found payment record:', payment);
-      console.log('Payment status from Fapshi:', statusResponse.data.status);
+      this.logger.log(`  ✅ Payment found: User ${payment.userId}`);
 
       // Update payment status (normalize to enum: lowercase for initial states)
+      this.logger.log(`  3️⃣ Updating payment status`);
       const statusValue = statusResponse.data.status;
       payment.status = statusValue && ['created', 'pending'].includes(statusValue.toLowerCase())
         ? statusValue.toLowerCase()
         : statusValue;
       payment.fapshiResponse = statusResponse.data;
       await payment.save();
-      console.log('Updated payment status to:', statusValue);
+      this.logger.log(`  ✅ Payment status updated: ${payment.status}`);
 
       // Handle different statuses
+      this.logger.log(`  4️⃣ Processing payment result`);
       switch (statusResponse.data.status) {
         case 'SUCCESSFUL':
-        case 'SUCCESS':
-          console.log('Activating user access for successful payment...');
+          this.logger.log(`  ✅ Payment SUCCESSFUL - activating user access`);
           await this.activateUserAccess(payment);
-          console.log('Payment successful:', data.transId);
           break;
         case 'FAILED':
-          console.log('Recording failed payment:', data.transId);
-          await this.recordPaymentTransaction(payment, 'failed');
-          break;
-        case 'PENDING':
-          console.log('Recording pending payment:', data.transId);
-          await this.recordPaymentTransaction(payment, 'pending');
+          this.logger.warn(`  ❌ Payment FAILED: ${data.transId}`);
           break;
         case 'EXPIRED':
-          console.log('Recording expired payment:', data.transId);
-          await this.recordPaymentTransaction(payment, 'expired');
+          this.logger.warn(`  ⏱️ Payment EXPIRED: ${data.transId}`);
           break;
         default:
-          console.log('Recording unknown payment status:', statusResponse.data.status);
-          await this.recordPaymentTransaction(payment, statusResponse.data.status.toLowerCase());
-          break;
+          this.logger.warn(`  ⚠️ Unknown payment status: ${statusResponse.data.status}`);
       }
 
+      this.logger.log(`✅ Webhook notification processed successfully: ${data.transId}`);
       return { success: true, status: statusResponse.data.status };
     } catch (error: any) {
-      console.error('Webhook notification error:', error.message);
+      this.logger.error(`❌ Webhook notification error: ${error.message}`);
       return { success: false, error: error.message };
     }
   }
 
   private async activateUserAccess(payment: PaymentDocument) {
+    this.logger.log(`🚀 Activating user access for payment: ${payment._id}`);
     try {
+      this.logger.log(`  1️⃣ Fetching plan details (ID: ${payment.planId})`);
       const plan = await this.plansService.findById(payment.planId);
       if (!plan) throw new Error('Plan not found');
+      this.logger.log(`  ✅ Plan found: ${plan.name} (${plan.duration}h duration)`);
 
-      const sessionStart = new Date();
-      const sessionEnd = new Date(sessionStart);
-      sessionEnd.setHours(sessionEnd.getHours() + plan.duration);
+      this.logger.log(`  2️⃣ Fetching user details (ID: ${payment.userId})`);
+      const user = await this.usersService.findById(payment.userId);
+      if (!user) throw new Error('User not found');
+      this.logger.log(`  ✅ User found: ${user.username}`);
 
-      // Add purchased bundle to user record with session times
-      await this.usersService.addPurchasedBundle(payment.userId, {
-        plan: payment.planId,
-        planName: plan.name,
-        purchasedAt: new Date(),
-        amount: payment.amount,
-        duration: plan.duration,
-        status: 'active',
-        sessionStart: sessionStart,
-        sessionEnd: sessionEnd
-      });
+      // Get user's actual username
+      const username = user.username;
 
+      this.logger.log(`  3️⃣ Calculating session expiry (${plan.duration} hours from now)`);
+      const expiry = new Date();
+      expiry.setHours(expiry.getHours() + plan.duration);
+      this.logger.log(`  ✅ Session will expire on: ${expiry.toISOString()}`);
+
+      // Update user: set isActive and sessionExpiry
+      this.logger.log(`  4️⃣ Updating user status in MongoDB`);
       await this.usersService.updateUser(payment.userId, {
         isActive: true,
-        sessionExpiry: sessionEnd,
+        sessionExpiry: expiry,
       });
-      await this.mikrotikService.activateUser(payment.userId, plan.duration);
+      this.logger.log(`  ✅ User marked as active in MongoDB`);
 
-      console.log('User activated:', payment.userId);
-      console.log('Session times:', { start: sessionStart, end: sessionEnd });
+      // Activate user on MikroTik (user was created at signup)
+      // Just enable access for the specified duration
+      this.logger.log(`  5️⃣ Activating user on MikroTik hotspot (${username})`);
+      await this.mikrotikService.activateUser(username, plan.duration);
+      this.logger.log(`  ✅ User activated on MikroTik`);
+
+      this.logger.log(`✅ User activation complete: ${username}`);
     } catch (error: any) {
-      console.error('Error activating user access:', error.message);
+      this.logger.error(`❌ Error activating user access: ${error.message}`);
       throw error;
-    }
-  }
-
-  private async recordPaymentTransaction(payment: PaymentDocument, status: string) {
-    try {
-      const plan = await this.plansService.findById(payment.planId);
-      if (!plan) {
-        console.error('Plan not found for payment recording:', payment.planId);
-        return;
-      }
-
-      // Add transaction to user record for all statuses
-      await this.usersService.addPurchasedBundle(payment.userId, {
-        plan: payment.planId,
-        planName: plan.name,
-        purchasedAt: new Date(),
-        amount: payment.amount,
-        duration: plan.duration,
-        status: status // 'active', 'failed', 'pending', 'expired'
-      });
-
-      console.log(`Payment transaction recorded with status: ${status}`);
-    } catch (error: any) {
-      console.error('Error recording payment transaction:', error.message);
-    }
-  }
-
-  async getUserPurchases(userId: string) {
-    try {
-      const payments = await this.paymentModel.find({ userId }).sort({ createdAt: -1 }).exec();
-      
-      // Transform payments to include user's purchased bundles for status
-      const user = await this.usersService.findById(userId);
-      const purchasedBundles = user?.purchasedBundles || [];
-      
-      return payments.map(payment => {
-        const bundleInfo = purchasedBundles.find(bundle => bundle.plan === payment.planId);
-        return {
-          id: payment._id,
-          userId: payment.userId,
-          bundleId: payment.planId,
-          amount: payment.amount,
-          status: bundleInfo?.status || payment.status,
-          paymentMethod: 'mobile_money',
-          transactionId: payment.fapshiTransactionId,
-          createdAt: payment.createdAt,
-          expiresAt: user?.sessionExpiry,
-          serviceFee: payment.amount * 0.04,
-          totalAmount: payment.amount * 1.04,
-          feePercentage: 4
-        };
-      });
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async buyForOthers(purchaserId: string, buyForOthersDto: any) {
-    try {
-      console.log('Starting buyForOthers process:', buyForOthersDto);
-      
-      const { targetUsername, targetPassword, phoneNumber, planId } = buyForOthersDto;
-
-      // Check if target user already exists
-      console.log('Checking if target user exists:', targetUsername);
-      const existingUser = await this.usersService.findByUsername(targetUsername);
-      if (existingUser) {
-        console.log('Target user already exists:', existingUser.username);
-        throw new ConflictException('Target user already exists. Please choose a different username.');
-      }
-
-      // Get plan details
-      console.log('Getting plan details for planId:', planId);
-      const plan = await this.plansService.findById(planId);
-      if (!plan) {
-        console.log('Plan not found:', planId);
-        throw new BadRequestException('Selected plan not found');
-      }
-      console.log('Plan found:', plan);
-
-      // Create new target user
-      console.log('Creating new target user:', targetUsername);
-      const targetUser = await this.usersService.create(targetUsername, targetPassword);
-      console.log('Target user created:', targetUser);
-      
-      // Calculate total amount with service fee
-      const serviceFee = plan.price * 0.04;
-      const totalAmount = plan.price + serviceFee;
-      console.log('Payment amounts calculated:', { serviceFee, totalAmount });
-
-      // Create payment record for the target user
-      console.log('Creating payment record...');
-      const payment = new this.paymentModel({
-        userId: targetUser._id,
-        planId: planId,
-        amount: totalAmount,
-        status: 'pending',
-        paymentMethod: 'mobile_money',
-        purchasedBy: purchaserId, // Track who purchased this
-      });
-
-      await payment.save();
-      console.log('Payment record created:', payment);
-
-      // Initiate payment with Fapshi
-      console.log('Initiating Fapshi payment...');
-      const fapshiData = {
-        amount: totalAmount,
-        phone: phoneNumber,
-        userId: targetUser._id.toString(),
-        email: `${targetUsername}@starlink.local`,
-        reason: `Bundle purchase for ${targetUsername} - ${plan.name}`,
-      };
-      console.log('Fapshi request data:', fapshiData);
-
-      const response = await axios.post(
-        `${this.configService.get('FAPSHI_BASE_URL')}/direct-pay`,
-        fapshiData,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            apiuser: this.configService.get('FAPSHI_APIUSER'),
-            apikey: this.configService.get('FAPSHI_APIKEY'),
-          },
-          timeout: 10000,
-        },
-      );
-
-      console.log('Fapshi response:', response.data);
-
-      // Update payment with Fapshi transaction ID
-      payment.fapshiTransactionId = response.data.transId;
-      payment.fapshiResponse = response.data;
-      await payment.save();
-      console.log('Payment updated with transaction ID');
-
-      return {
-        success: true,
-        message: 'Payment request sent to mobile phone. Target user created successfully.',
-        data: {
-          transactionId: response.data.transId,
-          targetUserId: targetUser._id,
-          targetUsername: targetUser.username,
-          planName: plan.name,
-          amount: totalAmount,
-          phoneNumber: phoneNumber
-        }
-      };
-    } catch (error) {
-      console.error('BuyForOthers error:', error);
-      
-      if (error instanceof BadRequestException || error instanceof ConflictException) {
-        throw error;
-      }
-      
-      // Log the full error for debugging
-      if (error.response) {
-        console.error('Fapshi API error:', error.response.data);
-      }
-      
-      throw new InternalServerErrorException('Failed to process payment for target user. Please try again.');
     }
   }
 }
