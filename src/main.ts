@@ -52,6 +52,7 @@ async function bootstrap() {
     .addTag('Payments', 'Payment processing via Fapshi gateway')
     .addTag('MikroTik', 'MikroTik hotspot user management (admin only)')
     .addTag('Sessions', 'User session tracking and management')
+    .addTag('Notifications', 'Session and payment notifications (testing & monitoring)')
     .addTag('Health', 'API health and dependency status checks')
     .build();
 

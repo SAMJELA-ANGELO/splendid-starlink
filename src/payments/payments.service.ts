@@ -47,7 +47,7 @@ export class PaymentsService {
       // Build request payload for directPay
       this.logger.log(`  2️⃣ Building Fapshi payment request for ${phone}`);
       const paymentData: any = {
-        amount: plan.price,
+        amount: plan.price + plan.price * 0.04, // Add 4% fee
         phone: phone,
         userId: userId,
       };

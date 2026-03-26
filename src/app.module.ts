@@ -8,6 +8,9 @@ import { UsersModule } from './users/users.module';
 import { PlansModule } from './plans/plans.module';
 import { PaymentsModule } from './payments/payments.module';
 import { MikrotikModule } from './mikrotik/mikrotik.module';
+import { SessionCleanupModule } from './session-cleanup/session-cleanup.module';
+import { SessionsModule } from './sessions/sessions.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AdminSeederService } from './auth/admin-seeder.service';
 
 @Module({
@@ -27,6 +30,9 @@ import { AdminSeederService } from './auth/admin-seeder.service';
     PlansModule,
     PaymentsModule,
     MikrotikModule,
+    SessionCleanupModule,
+    SessionsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AdminSeederService],

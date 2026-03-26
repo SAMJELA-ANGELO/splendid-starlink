@@ -38,6 +38,15 @@ export class Payment {
 
   @Prop({ type: Date, default: Date.now })
   createdAt: Date;
+
+  @Prop({ type: Date, default: null })
+  notificationInitiatedSent?: Date;
+
+  @Prop({ type: Date, default: null })
+  notificationSuccessSent?: Date;
+
+  @Prop({ type: Date, default: null })
+  notificationFailedSent?: Date;
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);

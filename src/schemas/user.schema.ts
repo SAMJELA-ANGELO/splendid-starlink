@@ -32,6 +32,15 @@ export class User {
     amount: number;
     duration: number;
   }[];
+
+  @Prop({ type: Date, default: null })
+  notification30minSent?: Date;
+
+  @Prop({ type: Date, default: null })
+  notification10minSent?: Date;
+
+  @Prop({ type: Date, default: null })
+  notificationExpiredSent?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
