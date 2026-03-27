@@ -306,4 +306,16 @@ export class PaymentsService {
       return { reconnected: false, reason: `Connection error: ${error.message}` };
     }
   }
+
+  async getUserPayments(userId: string) {
+    this.logger.log(`📋 Fetching payment history for user: ${userId}`);
+    try {
+      const payments = await this.paymentModel.find({ userId }).sort({ createdAt: -1 }).exec();
+      this.logger.log(`✅ Retrieved ${payments.length} payments for user: ${userId}`);
+      return payments;
+    } catch (error: any) {
+      this.logger.error(`❌ Error fetching payment history for user ${userId}: ${error.message}`);
+      throw error;
+    }
+  }
 }

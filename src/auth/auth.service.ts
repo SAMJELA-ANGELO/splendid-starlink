@@ -30,6 +30,9 @@ export class AuthService {
       message: 'Login successful',
       data: {
         token,
+        access_token: token,
+        expires_in: 3600,
+        token_type: 'Bearer',
         user: {
           id: user._id,
           username: user.username,

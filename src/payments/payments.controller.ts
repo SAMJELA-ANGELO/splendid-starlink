@@ -95,6 +95,31 @@ export class PaymentsController {
     }
   }
 
+  @ApiOperation({ summary: 'Get current user purchase history' })
+  @ApiResponse({
+    status: 200,
+    description: 'User purchases retrieved',
+    isArray: true,
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('users')
+  async getUserPayments(@Request() req) {
+    this.logger.log(`📋 Fetching payment history for user: ${req.user.userId}`);
+    try {
+      const payments = await this.paymentsService.getUserPayments(req.user.userId);
+      this.logger.log(`✅ Retrieved ${payments.length} payments for user: ${req.user.userId}`);
+      return {
+        success: true,
+        data: payments,
+      };
+    } catch (error) {
+      this.logger.error(`❌ Failed to fetch payment history for user: ${req.user.userId}: ${error.message}`);
+      throw error;
+    }
+  }
+
   @ApiOperation({
     summary: 'Webhook endpoint for Fapshi payment notifications',
   })

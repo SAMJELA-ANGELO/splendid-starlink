@@ -86,13 +86,15 @@ export class AuthController {
       this.logger.log(
         `✅ User registered successfully: ${body.username} (ID: ${user._id})`,
       );
-      return {
-        success: true,
-        message: 'User created successfully',
-        data: {
-          user: { id: (user._id as unknown as string), username: user.username },
-        },
-      };
+      
+      // Auto-login after registration to get token
+      const loginResult = await this.authService.login(user);
+      this.logger.log(
+        `✅ User auto-logged in after registration: ${body.username}`,
+      );
+      
+      // Return the login result which includes the token
+      return loginResult;
     } catch (error: any) {
       this.logger.error(
         `❌ Registration failed for user: ${body.username} - ${error.message}`,
