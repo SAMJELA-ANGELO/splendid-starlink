@@ -263,4 +263,47 @@ export class PaymentsService {
       throw error;
     }
   }
+
+  async reconnectUserIfNeeded(userId: string) {
+    this.logger.log(`🔄 Checking if user needs WiFi reconnection: ${userId}`);
+    try {
+      this.logger.log(`  1️⃣ Fetching user details (ID: ${userId})`);
+      const user = await this.usersService.findById(userId);
+      if (!user) {
+        this.logger.warn(`  ⚠️ User not found: ${userId}`);
+        return { reconnected: false, reason: 'User not found' };
+      }
+      this.logger.log(`  ✅ User found: ${user.username}`);
+
+      // Check if user has an active session
+      const isSessionActive = user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
+      
+      if (!isSessionActive) {
+        this.logger.log(`  ℹ️ User has no active session`);
+        return { reconnected: false, reason: 'No active session' };
+      }
+
+      this.logger.log(`  2️⃣ User has active session - calculating remaining time`);
+      const now = new Date();
+      const remainingMs = user.sessionExpiry.getTime() - now.getTime();
+      const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
+      this.logger.log(`  ✅ Remaining session time: ${remainingHours} hours`);
+
+      // Reactivate on MikroTik
+      this.logger.log(`  3️⃣ Reactivating user on MikroTik hotspot (${user.username})`);
+      await this.mikrotikService.activateUser(user.username, remainingHours);
+      this.logger.log(`  ✅ User reconnected to WiFi`);
+
+      return { 
+        reconnected: true, 
+        username: user.username,
+        remainingTime: remainingMs,
+        remainingHours: remainingHours,
+      };
+    } catch (error: any) {
+      this.logger.error(`❌ Error reconnecting user: ${error.message}`);
+      // Log error but don't throw - user can still proceed even if reconnection fails
+      return { reconnected: false, reason: `Connection error: ${error.message}` };
+    }
+  }
 }

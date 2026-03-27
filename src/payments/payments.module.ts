@@ -16,5 +16,6 @@ import { MikrotikModule } from '../mikrotik/mikrotik.module';
   ],
   providers: [PaymentsService],
   controllers: [PaymentsController],
+  exports: [PaymentsService],
 })
 export class PaymentsModule {}

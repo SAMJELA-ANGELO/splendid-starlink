@@ -10,6 +10,7 @@ import { LocalAuthGuard } from './local-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UsersService } from '../users/users.service';
+import { PaymentsService } from '../payments/payments.service';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -19,6 +20,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private usersService: UsersService,
+    private paymentsService: PaymentsService,
   ) {}
 
   @ApiOperation({ summary: 'User login with username and password' })
@@ -43,6 +45,16 @@ export class AuthController {
   async login(@Request() req, @Body() body: LoginDto) {
     this.logger.log(`🔑 Login attempt for user: ${body.username}`);
     const result = await this.authService.login(req.user);
+    
+    // Auto-reconnect user to WiFi if they have an active session
+    this.logger.log(`🔄 Checking for active session to reconnect...`);
+    const reconnectionStatus = await this.paymentsService.reconnectUserIfNeeded(req.user._id);
+    if (reconnectionStatus.reconnected) {
+      this.logger.log(`✅ User reconnected to WiFi: ${reconnectionStatus.username} (${reconnectionStatus.remainingHours}h remaining)`);
+    } else {
+      this.logger.log(`ℹ️ No active session to reconnect: ${reconnectionStatus.reason}`);
+    }
+    
     this.logger.log(`✅ Login successful for user: ${body.username}`);
     return result;
   }
