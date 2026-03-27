@@ -27,7 +27,14 @@ export class AuthController {
     status: 200,
     description: 'Login successful, JWT token returned',
     schema: {
-      example: { access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+      example: {
+        success: true,
+        message: 'Login successful',
+        data: {
+          token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          user: { id: '507f1f77bcf86cd799439011', username: 'john_doe' },
+        },
+      },
     },
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
@@ -47,8 +54,11 @@ export class AuthController {
     description: 'User successfully registered',
     schema: {
       example: {
-        message: 'User created',
-        user: { id: '507f1f77bcf86cd799439011', username: 'john_doe' },
+        success: true,
+        message: 'User created successfully',
+        data: {
+          user: { id: '507f1f77bcf86cd799439011', username: 'john_doe' },
+        },
       },
     },
   })
@@ -65,8 +75,11 @@ export class AuthController {
         `✅ User registered successfully: ${body.username} (ID: ${user._id})`,
       );
       return {
-        message: 'User created',
-        user: { id: (user._id as unknown as string), username: user.username },
+        success: true,
+        message: 'User created successfully',
+        data: {
+          user: { id: (user._id as unknown as string), username: user.username },
+        },
       };
     } catch (error: any) {
       this.logger.error(
