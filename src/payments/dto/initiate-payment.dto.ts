@@ -40,4 +40,39 @@ export class InitiatePaymentDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @ApiProperty({
+    example: 'AA:BB:CC:DD:EE:FF',
+    description: 'Device MAC address (optional, from WiFi redirect)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  macAddress?: string;
+
+  @ApiProperty({
+    example: 'Douala-Main-Router',
+    description: 'Router identity (optional, from WiFi redirect)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  routerIdentity?: string;
+
+  @ApiProperty({
+    example: false,
+    description: 'Is this a gift purchase (buying for someone else)?',
+    required: false,
+  })
+  @IsOptional()
+  isGift?: boolean;
+
+  @ApiProperty({
+    example: 'john_doe',
+    description: 'Recipient username (required if isGift=true)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  recipientUsername?: string;
 }

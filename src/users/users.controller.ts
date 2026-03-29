@@ -1,7 +1,8 @@
-import { Controller, Post, Body, Logger } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Post, Get, Body, Logger, UseGuards, Request } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { SignupDto } from '../auth/dto/signup.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @ApiTags('Users')
 @Controller('users')
@@ -37,6 +38,39 @@ export class UsersController {
       };
     } catch (error) {
       this.logger.error(`❌ User creation failed for username: ${body.username}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  @ApiOperation({ summary: 'Get current authenticated user details' })
+  @ApiResponse({
+    status: 200,
+    description: 'User details retrieved successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - No valid JWT token provided',
+  })
+  @ApiBearerAuth('JWT')
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  async getCurrentUser(@Request() req: any) {
+    this.logger.log(`👤 User details requested for userId: ${req.user.userId}`);
+    try {
+      const user = await this.usersService.findById(req.user.userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
+      this.logger.log(`✅ User details retrieved for userId: ${req.user.userId}`);
+      return {
+        id: (user as any)._id?.toString(),
+        username: user.username,
+        isActive: user.isActive,
+        sessionExpiry: user.sessionExpiry,
+        purchasedBundles: user.purchasedBundles || [],
+      };
+    } catch (error) {
+      this.logger.error(`❌ Failed to retrieve user details for userId: ${req.user.userId}: ${error.message}`);
       throw error;
     }
   }

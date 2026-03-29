@@ -1,6 +1,9 @@
 import { Controller, Post, Delete, Body, Get, UseGuards, Param, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiSecurity, ApiBody } from '@nestjs/swagger';
 import { MikrotikService } from './mikrotik.service';
+import { ActivateUserDto } from './dto/activate-user.dto';
+import { DisableUserDto } from './dto/disable-user.dto';
+import { DeleteUserDto } from './dto/delete-user.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 
@@ -93,13 +96,14 @@ export class MikrotikController {
   }
 
   @ApiOperation({ summary: 'Activate a user on MikroTik hotspot' })
+  @ApiBody({ type: ActivateUserDto })
   @ApiBearerAuth()
   @ApiResponse({ status: 201, description: 'User activated successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiSecurity('JWT')
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Post('activate')
-  async activateUser(@Body() body: { username: string; durationHours: number }) {
+  async activateUser(@Body() body: ActivateUserDto) {
     this.logger.log(`⏱️ Activating MikroTik user: ${body.username} for ${body.durationHours} hours`);
     try {
       await this.mikrotikService.activateUser(body.username, body.durationHours);
@@ -112,13 +116,14 @@ export class MikrotikController {
   }
 
   @ApiOperation({ summary: 'Deactivate a user on MikroTik hotspot (disable account)' })
+  @ApiBody({ type: DisableUserDto })
   @ApiBearerAuth()
   @ApiResponse({ status: 200, description: 'User deactivated successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiSecurity('JWT')
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Post('disable')
-  async disableUser(@Body() body: { username: string }) {
+  async disableUser(@Body() body: DisableUserDto) {
     this.logger.log(`🔒 Disabling MikroTik user: ${body.username} (account kept)`);
     try {
       await this.mikrotikService.disableUser(body.username);
@@ -131,13 +136,14 @@ export class MikrotikController {
   }
 
   @ApiOperation({ summary: 'Delete a user from MikroTik hotspot (permanently remove)' })
+  @ApiBody({ type: DeleteUserDto })
   @ApiBearerAuth()
   @ApiResponse({ status: 200, description: 'User deleted successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiSecurity('JWT')
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Delete('delete')
-  async deleteUser(@Body() body: { username: string }) {
+  async deleteUser(@Body() body: DeleteUserDto) {
     this.logger.log(`🗑️ Permanently deleting MikroTik user: ${body.username}`);
     try {
       await this.mikrotikService.deleteUser(body.username);
@@ -150,13 +156,14 @@ export class MikrotikController {
   }
 
   @ApiOperation({ summary: 'Deactivate a user on MikroTik hotspot (DEPRECATED - use /delete instead)' })
+  @ApiBody({ type: DisableUserDto })
   @ApiBearerAuth()
   @ApiResponse({ status: 200, description: 'User deactivated successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiSecurity('JWT')
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Delete('deactivate')
-  async deactivateUser(@Body() body: { username: string }) {
+  async deactivateUser(@Body() body: DisableUserDto) {
     this.logger.warn(`⛔ DEPRECATED: Deactivate endpoint called for ${body.username} (use /delete instead)`);
     try {
       // Kept for backwards compatibility - calls delete which removes the user

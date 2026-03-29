@@ -47,6 +47,21 @@ export class Payment {
 
   @Prop({ type: Date, default: null })
   notificationFailedSent?: Date;
+
+  @Prop({ type: String, default: null })
+  macAddress?: string;
+
+  @Prop({ type: String, default: null })
+  routerIdentity?: string;
+
+  @Prop({ type: Boolean, default: false })
+  isGift?: boolean;
+
+  @Prop({ type: String, default: null })
+  recipientUsername?: string;
+
+  @Prop({ type: String, default: null })
+  activeRouter?: string;
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);

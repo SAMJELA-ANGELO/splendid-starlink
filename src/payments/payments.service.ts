@@ -5,6 +5,7 @@ import { Payment, PaymentDocument } from '../schemas/payment.schema';
 import { UsersService } from '../users/users.service';
 import { PlansService } from '../plans/plans.service';
 import { MikrotikService } from '../mikrotik/mikrotik.service';
+import { ActivitiesService } from '../activities/activities.service';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 
@@ -16,6 +17,7 @@ export class PaymentsService {
     private usersService: UsersService,
     private plansService: PlansService,
     private mikrotikService: MikrotikService,
+    private activitiesService: ActivitiesService,
     private configService: ConfigService,
   ) {}
 
@@ -26,6 +28,10 @@ export class PaymentsService {
     phone?: string,
     externalId?: string,
     name?: string,
+    macAddress?: string,
+    routerIdentity?: string,
+    isGift?: boolean,
+    recipientUsername?: string,
   ) {
     this.logger.log(`💶 Initiating payment for user ${userId}, plan ${planId}`);
     try {
@@ -81,11 +87,22 @@ export class PaymentsService {
         email,
         phone,
         externalId,
+        macAddress,
+        routerIdentity,
+        isGift: isGift || false,
+        recipientUsername: recipientUsername || null,
         status: (fapshiResponse.data.status || 'created').toLowerCase(),
         fapshiTransactionId: fapshiResponse.data.transId,
         fapshiResponse: fapshiResponse.data,
       });
       await payment.save();
+      
+      if (macAddress) this.logger.log(`  📌 MAC address saved: ${macAddress}`);
+      if (routerIdentity) this.logger.log(`  🛰️ Router identity saved: ${routerIdentity}`);
+      if (isGift && recipientUsername) {
+        this.logger.log(`  🎁 Gift payment for recipient: ${recipientUsername}`);
+      }
+      
       this.logger.log(`✅ Payment initiated successfully: ${fapshiResponse.data.transId}`);
 
       return {
@@ -230,36 +247,138 @@ export class PaymentsService {
       if (!plan) throw new Error('Plan not found');
       this.logger.log(`  ✅ Plan found: ${plan.name} (${plan.duration}h duration)`);
 
-      this.logger.log(`  2️⃣ Fetching user details (ID: ${payment.userId})`);
-      const user = await this.usersService.findById(payment.userId);
-      if (!user) throw new Error('User not found');
-      this.logger.log(`  ✅ User found: ${user.username}`);
+      const isGift = payment.isGift || false;
+      let username: string;
+      let targetUserId: string;
 
-      // Get user's actual username
-      const username = user.username;
+      if (isGift && payment.recipientUsername) {
+        // Gift flow: activate recipient's username
+        username = payment.recipientUsername;
+        targetUserId = payment.userId; // Still log against payer for audit, but activate recipient
+        this.logger.log(`  🎁 GIFT FLOW: Activating for recipient: ${username}`);
+      } else {
+        // Self-purchase flow: activate payer's username
+        this.logger.log(`  2️⃣ Fetching user details (ID: ${payment.userId})`);
+        const user = await this.usersService.findById(payment.userId);
+        if (!user) throw new Error('User not found');
+        this.logger.log(`  ✅ User found: ${user.username}`);
+        username = user.username;
+        targetUserId = payment.userId;
+      }
 
       this.logger.log(`  3️⃣ Calculating session expiry (${plan.duration} hours from now)`);
       const expiry = new Date();
       expiry.setHours(expiry.getHours() + plan.duration);
       this.logger.log(`  ✅ Session will expire on: ${expiry.toISOString()}`);
 
-      // Update user: set isActive and sessionExpiry
-      this.logger.log(`  4️⃣ Updating user status in MongoDB`);
-      await this.usersService.updateUser(payment.userId, {
-        isActive: true,
-        sessionExpiry: expiry,
-      });
-      this.logger.log(`  ✅ User marked as active in MongoDB`);
+      // For self-purchase: Update payer's user record with MAC binding
+      // For gift: Skip MAC binding (recipient's device not known yet)
+      if (!isGift) {
+        this.logger.log(`  4️⃣ Updating payer's user status in MongoDB`);
+        const userUpdateData: any = {
+          isActive: true,
+          sessionExpiry: expiry,
+        };
 
-      // Activate user on MikroTik (user was created at signup)
-      // Just enable access for the specified duration
-      this.logger.log(`  5️⃣ Activating user on MikroTik hotspot (${username})`);
-      await this.mikrotikService.activateUser(username, plan.duration);
-      this.logger.log(`  ✅ User activated on MikroTik`);
+        if (payment.macAddress) {
+          userUpdateData.macAddress = payment.macAddress;
+          this.logger.log(`  📌 MAC address found in payment: ${payment.macAddress}`);
+        }
+        
+        if (payment.routerIdentity) {
+          userUpdateData.routerIdentity = payment.routerIdentity;
+          this.logger.log(`  🛰️ Router identity found: ${payment.routerIdentity}`);
+        }
+
+        await this.usersService.updateUser(targetUserId, userUpdateData);
+        this.logger.log(`  ✅ Payer marked as active in MongoDB`);
+      } else {
+        this.logger.log(`  4️⃣ Gift flow: Skipping payer's MongoDB update (recipient will log in manually)`);
+      }
+
+      // Activate on MikroTik
+      this.logger.log(`  5️⃣ Activating on MikroTik router (failover: Home→School)`);
+      try {
+        if (isGift) {
+          // Gift: Create hotspot user WITHOUT instant MAC bypass
+          // Recipient will log in manually, and we'll capture their MAC on first login
+          this.logger.log(`  🎁 Creating hotspot user for recipient: ${username}`);
+          const createUserResult = await this.mikrotikService.createHotspotUserOnly(
+            username,
+            plan.duration,
+          );
+          this.logger.log(`  ✅ Hotspot user created on router: ${createUserResult.activeRouter}`);
+          this.logger.log(`  ℹ️ Recipient will log in manually to receive their MAC binding`);
+          (payment as any).activeRouter = createUserResult.activeRouter; // Track which router
+        } else {
+          // Self-purchase: Create hotspot user AND bind MAC for instant access
+          const activateResult = await this.mikrotikService.activateOnAvailableRouter(
+            username,
+            plan.duration,
+            payment.macAddress,
+          );
+          this.logger.log(`  ✅ User activated on router: ${activateResult.activeRouter}`);
+          
+          if (activateResult.macBound) {
+            this.logger.log(`  ✅ MAC address automatically bound during activation`);
+          }
+          (payment as any).activeRouter = activateResult.activeRouter; // Track which router
+        }
+      } catch (activateError: any) {
+        this.logger.error(`  ❌ Activation failed: ${activateError.message}`);
+        throw new Error(`Failed to activate on any router: ${activateError.message}`);
+      }
+
+      // Save activeRouter field for audit trail
+      if ((payment as any).activeRouter) {
+        payment.activeRouter = (payment as any).activeRouter;
+        await payment.save();
+      }
+
+      // Log activity for successful payment
+      const plan_ref = await this.plansService.findById(payment.planId);
+      await this.activitiesService.logActivity(
+        payment.userId,
+        'payment_processed',
+        'payment',
+        `${isGift ? `Gift: ` : ''}Payment of ${payment.amount} CFA processed successfully for ${plan_ref?.name || 'Plan'} (${plan_ref?.duration}h)`,
+        'success',
+        {
+          planName: plan_ref?.name,
+          planId: payment.planId,
+          amount: payment.amount,
+          duration: plan_ref?.duration,
+          transactionId: payment.fapshiTransactionId,
+          isGift,
+          recipientUsername: payment.recipientUsername || undefined,
+        },
+        undefined,
+        {
+          routerIdentity: payment.activeRouter,
+          sessionId: undefined,
+        },
+      );
 
       this.logger.log(`✅ User activation complete: ${username}`);
     } catch (error: any) {
       this.logger.error(`❌ Error activating user access: ${error.message}`);
+      
+      // Log failed payment
+      const plan_ref = await this.plansService.findById(payment.planId);
+      await this.activitiesService.logActivity(
+        payment.userId,
+        'payment_failed',
+        'payment',
+        `Payment of ${payment.amount} CFA activation failed for ${plan_ref?.name || 'Plan'}: ${error.message}`,
+        'failed',
+        {
+          planName: plan_ref?.name,
+          amount: payment.amount,
+          transactionId: payment.fapshiTransactionId,
+          error: error.message,
+        },
+      );
+      
       throw error;
     }
   }
@@ -289,10 +408,23 @@ export class PaymentsService {
       const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
       this.logger.log(`  ✅ Remaining session time: ${remainingHours} hours`);
 
-      // Reactivate on MikroTik
-      this.logger.log(`  3️⃣ Reactivating user on MikroTik hotspot (${user.username})`);
-      await this.mikrotikService.activateUser(user.username, remainingHours);
-      this.logger.log(`  ✅ User reconnected to WiFi`);
+      // Reactivate on MikroTik using FAILOVER (tries Home then School router)
+      this.logger.log(`  3️⃣ Reactivating user on available MikroTik router (failover: Home→School)`);
+      try {
+        const reactivateResult = await this.mikrotikService.activateOnAvailableRouter(
+          user.username,
+          remainingHours,
+          user.macAddress,
+        );
+        this.logger.log(`  ✅ User reactivated on router: ${reactivateResult.activeRouter}`);
+        
+        if (reactivateResult.macBound) {
+          this.logger.log(`  ✅ MAC address automatically bound during reactivation`);
+        }
+      } catch (reactivateError: any) {
+        this.logger.warn(`  ⚠️ Failover reactivation warning: ${reactivateError.message} (session may still work)`);
+        // Don't throw - if user is already active, this might not be critical
+      }
 
       return { 
         reconnected: true, 

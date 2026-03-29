@@ -62,9 +62,23 @@ export class SessionCleanupService {
     try {
       this.logger.log(`  ⏱️ Disabling expired session for: ${user.username} (expired: ${user.sessionExpiry})`);
 
-      // 1. Disable user on MikroTik (keep account, just disable access)
+      // 1. Unbind MAC address using FAILOVER (try both Home and School routers)
+      if (user.macAddress) {
+        try {
+          this.logger.log(`    1️⃣ Removing MAC binding (failover): ${user.macAddress}`);
+          await this.mikrotikService.unbindMacOnAvailableRouters(user.macAddress);
+          this.logger.log(`    ✅ MAC address removed from bypass list(s): ${user.macAddress}`);
+        } catch (macError: any) {
+          this.logger.warn(
+            `    ⚠️ Failed to unbind MAC ${user.macAddress}: ${macError.message} (will continue...)`,
+          );
+          // Continue even if MAC unbinding fails
+        }
+      }
+
+      // 2. Disable user on MikroTik using FAILOVER (try both routers)
       try {
-        this.logger.log(`    1️⃣ Disabling user on MikroTik hotspot`);
+        this.logger.log(`    2️⃣ Disabling user on available MikroTik routers (failover)`);
         await this.mikrotikService.disableUser(user.username);
         this.logger.log(`    ✅ User disabled on MikroTik: ${user.username}`);
       } catch (mikrotikError: any) {
@@ -74,11 +88,12 @@ export class SessionCleanupService {
         // Continue with database update even if MikroTik fails
       }
 
-      // 2. Update user status in database
-      this.logger.log(`    2️⃣ Updating user status in MongoDB`);
+      // 3. Update user status in database
+      this.logger.log(`    3️⃣ Updating user status in MongoDB`);
       await this.userModel.findByIdAndUpdate(user._id, {
         isActive: false,
         sessionExpiry: null,
+        macAddress: null,
       });
 
       this.logger.log(`  ✅ User deactivated: ${user.username}`);

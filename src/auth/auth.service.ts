@@ -34,7 +34,7 @@ export class AuthService {
         expires_in: 3600,
         token_type: 'Bearer',
         user: {
-          id: user._id,
+          userId: user._id.toString(),
           username: user.username,
         },
       },

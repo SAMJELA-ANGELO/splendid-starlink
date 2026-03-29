@@ -25,6 +25,12 @@ export class Session {
 
   @Prop({ type: Number, default: 0 })
   remainingTime: number;
+
+  @Prop({ type: String, default: null })
+  macAddress?: string;
+
+  @Prop({ type: String, default: null })
+  routerIdentity?: string;
 }
 
 export const SessionSchema = SchemaFactory.createForClass(Session);

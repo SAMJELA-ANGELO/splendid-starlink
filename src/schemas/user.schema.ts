@@ -41,6 +41,12 @@ export class User {
 
   @Prop({ type: Date, default: null })
   notificationExpiredSent?: Date;
+
+  @Prop({ type: String, default: null })
+  macAddress?: string;
+
+  @Prop({ type: String, default: null })
+  routerIdentity?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

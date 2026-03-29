@@ -55,6 +55,10 @@ export class PaymentsController {
         body.phone,
         body.externalId,
         body.name,
+        body.macAddress,
+        body.routerIdentity,
+        body.isGift,
+        body.recipientUsername,
       );
       this.logger.log(`✅ Payment initiated successfully for user: ${req.user.userId}, Transaction: ${result.transId}`);
       return result;
@@ -104,7 +108,7 @@ export class PaymentsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Get('users')
+  @Get('history')
   async getUserPayments(@Request() req) {
     this.logger.log(`📋 Fetching payment history for user: ${req.user.userId}`);
     try {

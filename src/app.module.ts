@@ -11,6 +11,9 @@ import { MikrotikModule } from './mikrotik/mikrotik.module';
 import { SessionCleanupModule } from './session-cleanup/session-cleanup.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { BillingModule } from './billing/billing.module';
+import { MetricsModule } from './metrics/metrics.module';
+import { ActivitiesModule } from './activities/activities.module';
 import { AdminSeederService } from './auth/admin-seeder.service';
 
 @Module({
@@ -33,6 +36,9 @@ import { AdminSeederService } from './auth/admin-seeder.service';
     SessionCleanupModule,
     SessionsModule,
     NotificationsModule,
+    BillingModule,
+    MetricsModule,
+    ActivitiesModule,
   ],
   controllers: [AppController],
   providers: [AppService, AdminSeederService],

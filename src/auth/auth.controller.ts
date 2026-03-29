@@ -49,10 +49,10 @@ export class AuthController {
     // Auto-reconnect user to WiFi if they have an active session
     this.logger.log(`🔄 Checking for active session to reconnect...`);
     const reconnectionStatus = await this.paymentsService.reconnectUserIfNeeded(req.user._id);
-    if (reconnectionStatus.reconnected) {
-      this.logger.log(`✅ User reconnected to WiFi: ${reconnectionStatus.username} (${reconnectionStatus.remainingHours}h remaining)`);
+    if (reconnectionStatus?.reconnected) {
+      this.logger.log(`✅ User reconnected to WiFi: ${reconnectionStatus?.username} (${reconnectionStatus?.remainingHours}h remaining)`);
     } else {
-      this.logger.log(`ℹ️ No active session to reconnect: ${reconnectionStatus.reason}`);
+      this.logger.log(`ℹ️ No active session to reconnect: ${reconnectionStatus?.reason}`);
     }
     
     this.logger.log(`✅ Login successful for user: ${body.username}`);
