@@ -75,4 +75,22 @@ export class InitiatePaymentDto {
   @IsOptional()
   @IsString()
   recipientUsername?: string;
+
+  @ApiProperty({
+    example: '192.168.88.20',
+    description: 'User local IP address on WiFi network (optional, for silent login)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  userIp?: string;
+
+  @ApiProperty({
+    example: 'myPassword123',
+    description: 'User plain password from localStorage (optional, for silent login)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  password?: string;
 }

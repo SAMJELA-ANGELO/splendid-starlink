@@ -168,7 +168,7 @@ export class AuthController {
   async register(@Body() body: SignupDto) {
     this.logger.log(`📝 Registration attempt for user: ${body.username}`);
     if (body.macAddress) {
-      this.logger.log(`   📌 WiFi Session: MAC=${body.macAddress}, IP=${body.ipAddress || 'unknown'}, Router=${body.routerIdentity || 'unknown'}`);
+      this.logger.log(`   📌 WiFi Session: MAC=${body.macAddress}, Router=${body.routerIdentity || 'unknown'}`);
     }
     
     try {
@@ -176,7 +176,6 @@ export class AuthController {
         body.username, 
         body.password,
         body.macAddress,
-        body.ipAddress,
         body.routerIdentity
       );
       this.logger.log(

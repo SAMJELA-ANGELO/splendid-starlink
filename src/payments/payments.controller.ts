@@ -59,6 +59,8 @@ export class PaymentsController {
         body.routerIdentity,
         body.isGift,
         body.recipientUsername,
+        body.userIp,
+        body.password,
       );
       this.logger.log(`✅ Payment initiated successfully for user: ${req.user.userId}, Transaction: ${result.transId}`);
       return result;

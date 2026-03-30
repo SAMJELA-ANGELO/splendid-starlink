@@ -62,6 +62,12 @@ export class Payment {
 
   @Prop({ type: String, default: null })
   activeRouter?: string;
+
+  @Prop({ type: String, default: null })
+  userIp?: string;
+
+  @Prop({ type: String, default: null })
+  password?: string;
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);

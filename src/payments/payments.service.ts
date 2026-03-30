@@ -32,6 +32,8 @@ export class PaymentsService {
     routerIdentity?: string,
     isGift?: boolean,
     recipientUsername?: string,
+    userIp?: string,
+    password?: string,
   ) {
     this.logger.log(`💶 Initiating payment for user ${userId}, plan ${planId}`);
     try {
@@ -89,6 +91,8 @@ export class PaymentsService {
         externalId,
         macAddress,
         routerIdentity,
+        userIp,
+        password,
         isGift: isGift || false,
         recipientUsername: recipientUsername || null,
         status: (fapshiResponse.data.status || 'created').toLowerCase(),
@@ -98,7 +102,9 @@ export class PaymentsService {
       await payment.save();
       
       if (macAddress) this.logger.log(`  📌 MAC address saved: ${macAddress}`);
+      if (userIp) this.logger.log(`  🌐 User IP saved: ${userIp}`);
       if (routerIdentity) this.logger.log(`  🛰️ Router identity saved: ${routerIdentity}`);
+      if (password) this.logger.log(`  🔐 Password saved for silent login`);
       if (isGift && recipientUsername) {
         this.logger.log(`  🎁 Gift payment for recipient: ${recipientUsername}`);
       }
@@ -354,19 +360,40 @@ export class PaymentsService {
         this.logger.log(`  4️⃣ Gift flow: Skipping payer's MongoDB update (recipient will log in manually)`);
       }
 
-      // Activate on MikroTik - Use normal hotspot login method
-      this.logger.log(`  5️⃣ Creating hotspot user on MikroTik router (normal login method)`);
+      // Activate on MikroTik
+      this.logger.log(`  5️⃣ Activating user on MikroTik router`);
       try {
-        // For both self-purchase and gifts: Just create hotspot user
-        // Users will authenticate through normal MikroTik captive portal login
-        this.logger.log(`  📌 Creating hotspot user: ${username}`);
-        const createUserResult = await this.mikrotikService.createHotspotUserOnly(
-          username,
-          plan.duration,
-        );
-        this.logger.log(`  ✅ Hotspot user created on router: ${createUserResult.activeRouter}`);
-        this.logger.log(`  ℹ️ User will authenticate through normal MikroTik login`);
-        (payment as any).activeRouter = createUserResult.activeRouter; // Track which router
+        // For self-purchase with MAC & IP: Perform Silent Login to move user from Hosts to Active
+        // For gifts: Just create hotspot user (recipient will log in manually)
+        if (!isGift && payment.macAddress && payment.userIp && payment.password) {
+          this.logger.log(`  🔐 SILENT LOGIN: Attempting forced login for ${username}`);
+          this.logger.log(`     MAC: ${payment.macAddress}, IP: ${payment.userIp}`);
+          
+          // Call silentLogin to move user from Hosts to Active
+          const silentLoginResult = await this.mikrotikService.silentLogin(
+            username,
+            payment.password, // Use actual password from localStorage
+            payment.macAddress,
+            payment.userIp,
+            plan.duration,
+          );
+          this.logger.log(`  ✅ Silent login executed on router: ${silentLoginResult.activeRouter}`);
+          (payment as any).activeRouter = silentLoginResult.activeRouter;
+        } else {
+          // Standard creation for gifts or when MAC/IP not available
+          this.logger.log(`  📌 Creating hotspot user (normal login method): ${username}`);
+          const createUserResult = await this.mikrotikService.createHotspotUserOnly(
+            username,
+            plan.duration,
+          );
+          this.logger.log(`  ✅ Hotspot user created on router: ${createUserResult.activeRouter}`);
+          if (isGift) {
+            this.logger.log(`  🎁 Gift flow: User will authenticate through normal MikroTik login`);
+          } else {
+            this.logger.log(`  ℹ️ MAC/IP not available: User will authenticate through normal MikroTik login`);
+          }
+          (payment as any).activeRouter = createUserResult.activeRouter;
+        }
       } catch (activateError: any) {
         this.logger.error(`  ❌ Activation failed: ${activateError.message}`);
         throw new Error(`Failed to activate on any router: ${activateError.message}`);
@@ -470,15 +497,31 @@ export class PaymentsService {
       this.logger.log(`  ✅ Remaining session time: ${remainingHours} hours`);
 
       // Reactivate on MikroTik - ensure user exists (normal login method)
-      this.logger.log(`  3️⃣ Ensuring user exists on MikroTik router (normal login method)`);
+      this.logger.log(`  3️⃣ Ensuring user exists on MikroTik router`);
       try {
-        // Just ensure the hotspot user exists - no MAC binding needed
-        const createUserResult = await this.mikrotikService.createHotspotUserOnly(
-          user.username,
-          remainingHours,
-        );
-        this.logger.log(`  ✅ Hotspot user verified on router: ${createUserResult.activeRouter}`);
-        this.logger.log(`  ℹ️ User will authenticate through normal MikroTik login`);
+        // For returning users with MAC & IP: Attempt Silent Login
+        // Otherwise: Just ensure hotspot user exists
+        if (user.macAddress && user.ipAddress && user.password) {
+          this.logger.log(`  🔐 SILENT LOGIN: Attempting forced login for returning user`);
+          this.logger.log(`     MAC: ${user.macAddress}, IP: ${user.ipAddress}`);
+          
+          const silentLoginResult = await this.mikrotikService.silentLogin(
+            user.username,
+            user.password, // Use actual password from user record
+            user.macAddress,
+            user.ipAddress,
+            remainingHours,
+          );
+          this.logger.log(`  ✅ Silent login executed on router: ${silentLoginResult.activeRouter}`);
+        } else {
+          this.logger.log(`  📌 Creating hotspot user (normal login method): ${user.username}`);
+          const createUserResult = await this.mikrotikService.createHotspotUserOnly(
+            user.username,
+            remainingHours,
+          );
+          this.logger.log(`  ✅ Hotspot user verified on router: ${createUserResult.activeRouter}`);
+          this.logger.log(`  ℹ️ User will authenticate through normal MikroTik login`);
+        }
 
       return { 
         reconnected: true, 
