@@ -276,4 +276,23 @@ export class MikrotikService implements OnModuleInit {
       throw err;
     }
   }
+
+  async silentLogin(username: string, password: string, macAddress: string, ipAddress: string, durationHours: number) {
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/silent-login`;
+    this.logger.log(
+      `🔐 Performing silent login for user: ${username} (MAC: ${macAddress}, IP: ${ipAddress}, ${durationHours}h)`,
+    );
+    try {
+      this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
+      const resp = await axios.post(url, { username, password, macAddress, ipAddress, durationHours });
+      this.logger.log(`✅ Silent login successful on router: ${resp.data.activeRouter}`);
+      this.logger.log(`  ℹ️ User is now actively connected to the hotspot`);
+      return resp.data;
+    } catch (err: any) {
+      this.logger.error(
+        `❌ Silent login failed: ${err?.response?.data?.error || err.message}`,
+      );
+      throw err;
+    }
+  }
 }

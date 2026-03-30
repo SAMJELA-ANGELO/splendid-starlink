@@ -354,37 +354,19 @@ export class PaymentsService {
         this.logger.log(`  4️⃣ Gift flow: Skipping payer's MongoDB update (recipient will log in manually)`);
       }
 
-      // Activate on MikroTik
-      this.logger.log(`  5️⃣ Activating on MikroTik router (failover: Home→School)`);
+      // Activate on MikroTik - Use normal hotspot login method
+      this.logger.log(`  5️⃣ Creating hotspot user on MikroTik router (normal login method)`);
       try {
-        if (isGift) {
-          // Gift: Create hotspot user WITHOUT instant MAC bypass
-          // Recipient will log in manually, and we'll capture their MAC on first login
-          this.logger.log(`  🎁 Creating hotspot user for recipient: ${username}`);
-          const createUserResult = await this.mikrotikService.createHotspotUserOnly(
-            username,
-            plan.duration,
-          );
-          this.logger.log(`  ✅ Hotspot user created on router: ${createUserResult.activeRouter}`);
-          this.logger.log(`  ℹ️ Recipient will log in manually to receive their MAC binding`);
-          (payment as any).activeRouter = createUserResult.activeRouter; // Track which router
-        } else {
-          // Self-purchase: Create hotspot user AND bind MAC for instant access
-          this.logger.log(`  📌 Attempting MAC binding with: ${payment.macAddress}`);
-          const activateResult = await this.mikrotikService.activateOnAvailableRouter(
-            username,
-            plan.duration,
-            payment.macAddress,
-          );
-          this.logger.log(`  ✅ User activated on router: ${activateResult.activeRouter}`);
-          
-          if (activateResult.macBound) {
-            this.logger.log(`  ✅ MAC address automatically bound during activation`);
-          } else {
-            this.logger.warn(`  ⚠️ MAC binding result: ${activateResult.macBound}`);
-          }
-          (payment as any).activeRouter = activateResult.activeRouter; // Track which router
-        }
+        // For both self-purchase and gifts: Just create hotspot user
+        // Users will authenticate through normal MikroTik captive portal login
+        this.logger.log(`  📌 Creating hotspot user: ${username}`);
+        const createUserResult = await this.mikrotikService.createHotspotUserOnly(
+          username,
+          plan.duration,
+        );
+        this.logger.log(`  ✅ Hotspot user created on router: ${createUserResult.activeRouter}`);
+        this.logger.log(`  ℹ️ User will authenticate through normal MikroTik login`);
+        (payment as any).activeRouter = createUserResult.activeRouter; // Track which router
       } catch (activateError: any) {
         this.logger.error(`  ❌ Activation failed: ${activateError.message}`);
         throw new Error(`Failed to activate on any router: ${activateError.message}`);
@@ -427,8 +409,8 @@ export class PaymentsService {
         success: true,
         username: username,
         sessionExpiry: expiry.toISOString(),
-        readyForSilentLogin: !isGift, // Only true for self-purchase (not gift flow)
-        message: isGift ? 'Gift user created - recipient will log in manually' : 'User activated - ready for silent login'
+        readyForSilentLogin: true, // Enable silent login after payment
+        message: 'User activated - ready for silent login'
       };
       
       this.logger.log(`   📦 Returning activation result: ${JSON.stringify(activationResult)}`);
@@ -462,7 +444,7 @@ export class PaymentsService {
     }
   }
 
-  async reconnectUserIfNeeded(userId: string) {
+  async reconnectUserIfNeeded(userId: string): Promise<{ reconnected: boolean; username?: string; remainingTime?: number; remainingHours?: number; reason?: string }> {
     this.logger.log(`🔄 Checking if user needs WiFi reconnection: ${userId}`);
     try {
       this.logger.log(`  1️⃣ Fetching user details (ID: ${userId})`);
@@ -487,23 +469,16 @@ export class PaymentsService {
       const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
       this.logger.log(`  ✅ Remaining session time: ${remainingHours} hours`);
 
-      // Reactivate on MikroTik using FAILOVER (tries Home then School router)
-      this.logger.log(`  3️⃣ Reactivating user on available MikroTik router (failover: Home→School)`);
+      // Reactivate on MikroTik - ensure user exists (normal login method)
+      this.logger.log(`  3️⃣ Ensuring user exists on MikroTik router (normal login method)`);
       try {
-        const reactivateResult = await this.mikrotikService.activateOnAvailableRouter(
+        // Just ensure the hotspot user exists - no MAC binding needed
+        const createUserResult = await this.mikrotikService.createHotspotUserOnly(
           user.username,
           remainingHours,
-          user.macAddress,
         );
-        this.logger.log(`  ✅ User reactivated on router: ${reactivateResult.activeRouter}`);
-        
-        if (reactivateResult.macBound) {
-          this.logger.log(`  ✅ MAC address automatically bound during reactivation`);
-        }
-      } catch (reactivateError: any) {
-        this.logger.warn(`  ⚠️ Failover reactivation warning: ${reactivateError.message} (session may still work)`);
-        // Don't throw - if user is already active, this might not be critical
-      }
+        this.logger.log(`  ✅ Hotspot user verified on router: ${createUserResult.activeRouter}`);
+        this.logger.log(`  ℹ️ User will authenticate through normal MikroTik login`);
 
       return { 
         reconnected: true, 
@@ -516,9 +491,13 @@ export class PaymentsService {
       // Log error but don't throw - user can still proceed even if reconnection fails
       return { reconnected: false, reason: `Connection error: ${error.message}` };
     }
+  } catch (error: any) {
+    this.logger.error(`❌ Unexpected error in reconnectUserIfNeeded: ${error.message}`);
+    return { reconnected: false, reason: `Unexpected error: ${error.message}` };
   }
+}
 
-  async getUserPayments(userId: string) {
+async getUserPayments(userId: string) {
     this.logger.log(`📋 Fetching payment history for user: ${userId}`);
     try {
       const payments = await this.paymentModel.find({ userId }).sort({ createdAt: -1 }).exec();

@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './local-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
+import { SilentLoginDto } from './dto/silent-login.dto';
 import { UsersService } from '../users/users.service';
 import { PaymentsService } from '../payments/payments.service';
 import { MikrotikService } from '../mikrotik/mikrotik.service';
@@ -83,12 +84,19 @@ export class AuthController {
     // If coming from WiFi and plan is ACTIVE, authenticate with MikroTik.
     if (body.fromWifi && !planExpired) {
       this.logger.log(`📡 WiFi login detected - authenticating with MikroTik for ${user.username}`);
-      
+
       // For returning users: if no MAC stored but user has active plan, grant access
-      const shouldAuthenticate = user.macAddress || (!user.macAddress && !planExpired);
-      
+      const shouldAuthenticate = user.macAddress || body.macAddress || (!user.macAddress && !planExpired);
+
       if (shouldAuthenticate) {
         try {
+          // If MAC provided in login request, bind it
+          if (body.macAddress) {
+            this.logger.log(`📌 Binding MAC ${body.macAddress} for WiFi access`);
+            await this.mikrotikService.bindMacOnAvailableRouter(body.macAddress, Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60)));
+          }
+
+          // Activate/create hotspot user
           await this.mikrotikService.activateUser(
             user.username,
             Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60))
@@ -104,8 +112,6 @@ export class AuthController {
         result.data.mikrotikAuth = { success: false, message: 'No active plan for WiFi access' };
       }
     }
-    
-    // Auto-reconnect user to WiFi if they have an active session
     this.logger.log(`🔄 Checking for active session to reconnect...`);
     const reconnectionStatus = await this.paymentsService.reconnectUserIfNeeded(req.user._id);
     if (reconnectionStatus?.reconnected) {
@@ -233,6 +239,49 @@ export class AuthController {
       };
     } catch (error: any) {
       this.logger.error(`❌ MAC check failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  @ApiOperation({ summary: 'Perform silent login to MikroTik hotspot' })
+  @ApiBody({ type: SilentLoginDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Silent login successful - user is now connected to hotspot',
+    schema: {
+      example: {
+        success: true,
+        message: 'Silent login successful',
+        data: {
+          activeRouter: 'Home',
+          note: 'User is now actively connected to the hotspot'
+        },
+      },
+    },
+  })
+  @Post('silent-login')
+  async silentLogin(@Body() body: SilentLoginDto) {
+    this.logger.log(`🔐 Silent login request for user: ${body.username} (MAC: ${body.macAddress}, IP: ${body.ipAddress})`);
+
+    try {
+      // Call MikroTik service to perform silent login
+      const result = await this.mikrotikService.silentLogin(
+        body.username,
+        body.password,
+        body.macAddress,
+        body.ipAddress,
+        body.durationHours,
+      );
+
+      this.logger.log(`✅ Silent login successful for ${body.username} on router: ${result.activeRouter}`);
+
+      return {
+        success: true,
+        message: 'Silent login successful',
+        data: result,
+      };
+    } catch (error: any) {
+      this.logger.error(`❌ Silent login failed for ${body.username}: ${error.message}`);
       throw error;
     }
   }
