@@ -105,8 +105,10 @@ export class AuthController {
         try {
           // If MAC provided in login request, bind it
           if (body.macAddress) {
-            this.logger.log(`📌 Binding MAC ${body.macAddress} for WiFi access`);
-            await this.mikrotikService.bindMacOnAvailableRouter(body.macAddress, Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60)));
+            // FIX: Decode URL-encoded MAC address (02%3A38... → 02:38:9C...)
+            const decodedMac = decodeURIComponent(body.macAddress);
+            this.logger.log(`📌 Binding MAC ${body.macAddress} → Decoded: ${decodedMac} for WiFi access`);
+            await this.mikrotikService.bindMacOnAvailableRouter(decodedMac, Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60)));
             this.logger.log(`✅ MAC binding completed`);
           }
 
