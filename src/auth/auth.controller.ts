@@ -47,7 +47,15 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Request() req, @Body() body: LoginDto) {
-    this.logger.log(`🔑 Login attempt for user: ${body.username}`);
+    this.logger.log(`🔑 ===== LOGIN ATTEMPT START =====`);
+    this.logger.log(`🔑 Username: ${body.username}`);
+    this.logger.log(`🔑 Request body:`, body);
+    this.logger.log(`🔑 User from LocalAuthGuard:`, req.user ? {
+      _id: req.user._id,
+      username: req.user.username,
+      isActive: req.user.isActive,
+      sessionExpiry: req.user.sessionExpiry
+    } : 'No user found');
     
     const user = req.user;
     const now = new Date();
@@ -83,10 +91,15 @@ export class AuthController {
     
     // If coming from WiFi and plan is ACTIVE, authenticate with MikroTik.
     if (body.fromWifi && !planExpired) {
+      this.logger.log(`📡 ===== WIFI LOGIN PROCESS START =====`);
       this.logger.log(`📡 WiFi login detected - authenticating with MikroTik for ${user.username}`);
+      this.logger.log(`📡 User MAC: ${user.macAddress || 'Not stored'}`);
+      this.logger.log(`📡 Request MAC: ${body.macAddress || 'Not provided'}`);
+      this.logger.log(`📡 Plan active: ${!planExpired}, expires: ${user.sessionExpiry}`);
 
       // For returning users: if no MAC stored but user has active plan, grant access
       const shouldAuthenticate = user.macAddress || body.macAddress || (!user.macAddress && !planExpired);
+      this.logger.log(`📡 Should authenticate: ${shouldAuthenticate}`);
 
       if (shouldAuthenticate) {
         try {
@@ -94,9 +107,11 @@ export class AuthController {
           if (body.macAddress) {
             this.logger.log(`📌 Binding MAC ${body.macAddress} for WiFi access`);
             await this.mikrotikService.bindMacOnAvailableRouter(body.macAddress, Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60)));
+            this.logger.log(`✅ MAC binding completed`);
           }
 
           // Activate/create hotspot user
+          this.logger.log(`🔄 Activating hotspot user...`);
           await this.mikrotikService.activateUser(
             user.username,
             Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60))
@@ -104,23 +119,29 @@ export class AuthController {
           this.logger.log(`✅ MikroTik authentication successful for ${user.username}`);
           result.data.mikrotikAuth = { success: true, message: 'Authenticated with MikroTik' };
         } catch (mikrotikError: any) {
-          this.logger.warn(`⚠️ MikroTik authentication warning: ${mikrotikError.message}`);
+          this.logger.error(`❌ MikroTik authentication FAILED: ${mikrotikError.message}`);
+          this.logger.error(`❌ Error details:`, mikrotikError);
           result.data.mikrotikAuth = { success: false, message: mikrotikError.message };
         }
       } else {
         this.logger.log(`ℹ️ Skipping MikroTik auth - no MAC and plan expired for ${user.username}`);
         result.data.mikrotikAuth = { success: false, message: 'No active plan for WiFi access' };
       }
+      this.logger.log(`📡 ===== WIFI LOGIN PROCESS END =====`);
     }
     this.logger.log(`🔄 Checking for active session to reconnect...`);
     const reconnectionStatus = await this.paymentsService.reconnectUserIfNeeded(req.user._id);
+    this.logger.log(`🔄 Reconnection status:`, reconnectionStatus);
     if (reconnectionStatus?.reconnected) {
       this.logger.log(`✅ User reconnected to WiFi: ${reconnectionStatus?.username} (${reconnectionStatus?.remainingHours}h remaining)`);
     } else {
       this.logger.log(`ℹ️ No active session to reconnect: ${reconnectionStatus?.reason}`);
     }
     
-    this.logger.log(`✅ Login successful for user: ${body.username}`);
+    this.logger.log(`✅ ===== LOGIN SUCCESSFUL =====`);
+    this.logger.log(`✅ User: ${body.username}`);
+    this.logger.log(`✅ Response data:`, result.data);
+    this.logger.log(`✅ ===== LOGIN END =====`);
     return result;
   }
 
@@ -147,7 +168,7 @@ export class AuthController {
   async register(@Body() body: SignupDto) {
     this.logger.log(`📝 Registration attempt for user: ${body.username}`);
     if (body.macAddress) {
-      this.logger.log(`   📌 WiFi Session: MAC=${body.macAddress}, Router=${body.routerIdentity || 'unknown'}`);
+      this.logger.log(`   📌 WiFi Session: MAC=${body.macAddress}, IP=${body.ipAddress || 'unknown'}, Router=${body.routerIdentity || 'unknown'}`);
     }
     
     try {
@@ -155,6 +176,7 @@ export class AuthController {
         body.username, 
         body.password,
         body.macAddress,
+        body.ipAddress,
         body.routerIdentity
       );
       this.logger.log(
@@ -261,10 +283,17 @@ export class AuthController {
   })
   @Post('silent-login')
   async silentLogin(@Body() body: SilentLoginDto) {
-    this.logger.log(`🔐 Silent login request for user: ${body.username} (MAC: ${body.macAddress}, IP: ${body.ipAddress})`);
+    this.logger.log(`🔐 ===== SILENT LOGIN START =====`);
+    this.logger.log(`🔐 Username: ${body.username}`);
+    this.logger.log(`🔐 Password: [HIDDEN]`);
+    this.logger.log(`🔐 MAC Address: ${body.macAddress}`);
+    this.logger.log(`🔐 IP Address: ${body.ipAddress}`);
+    this.logger.log(`🔐 Duration Hours: ${body.durationHours}`);
+    this.logger.log(`🔐 Full request body:`, body);
 
     try {
       // Call MikroTik service to perform silent login
+      this.logger.log(`🔄 Calling MikroTik SilentLogin service...`);
       const result = await this.mikrotikService.silentLogin(
         body.username,
         body.password,
@@ -272,16 +301,18 @@ export class AuthController {
         body.ipAddress,
         body.durationHours,
       );
-
-      this.logger.log(`✅ Silent login successful for ${body.username} on router: ${result.activeRouter}`);
-
+      this.logger.log(`✅ Silent login successful on router: ${result}`);
+      this.logger.log(`✅ ===== SILENT LOGIN SUCCESS =====`);
       return {
         success: true,
         message: 'Silent login successful',
         data: result,
       };
     } catch (error: any) {
-      this.logger.error(`❌ Silent login failed for ${body.username}: ${error.message}`);
+      this.logger.error(`❌ ===== SILENT LOGIN FAILED =====`);
+      this.logger.error(`❌ Error message: ${error.message}`);
+      this.logger.error(`❌ Error stack:`, error.stack);
+      this.logger.error(`❌ Full error object:`, error);
       throw error;
     }
   }

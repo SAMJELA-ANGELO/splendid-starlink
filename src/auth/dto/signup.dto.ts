@@ -17,6 +17,11 @@ export class SignupDto {
   @IsString()
   macAddress?: string;
 
+  @ApiProperty({ example: '192.168.1.100', description: 'Device IP address (from WiFi redirect)', required: false })
+  @IsOptional()
+  @IsString()
+  ipAddress?: string;
+
   @ApiProperty({ example: 'Home', description: 'Router identity (from WiFi redirect)', required: false })
   @IsOptional()
   @IsString()

@@ -46,6 +46,9 @@ export class User {
   macAddress?: string;
 
   @Prop({ type: String, default: null })
+  ipAddress?: string;
+
+  @Prop({ type: String, default: null })
   routerIdentity?: string;
 }
 

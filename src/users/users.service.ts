@@ -14,10 +14,13 @@ export class UsersService {
     private mikrotikService: MikrotikService,
   ) {}
 
-  async create(username: string, password: string, macAddress?: string, routerIdentity?: string): Promise<UserDocument> {
+  async create(username: string, password: string, macAddress?: string, ipAddress?: string, routerIdentity?: string): Promise<UserDocument> {
     this.logger.log(`👤 Starting user creation process for username: ${username}`);
     if (macAddress) {
       this.logger.log(`   📌 MAC Address: ${macAddress}`);
+    }
+    if (ipAddress) {
+      this.logger.log(`   🌐 IP Address: ${ipAddress}`);
     }
     if (routerIdentity) {
       this.logger.log(`   🛰️ Router Identity: ${routerIdentity}`);
@@ -42,12 +45,13 @@ export class UsersService {
         password: hashedPassword,
         mikrotikCreated: true,
         macAddress: macAddress || null,
+        ipAddress: ipAddress || null,
         routerIdentity: routerIdentity || null,
         isActive: false, // User is NOT activated until payment
       });
       const savedUser = await user.save();
       this.logger.log(
-        `✅ User created successfully: ${username} (ID: ${savedUser._id}, MikroTik: ✓, MAC: ${macAddress || 'null'})`,
+        `✅ User created successfully: ${username} (ID: ${savedUser._id}, MikroTik: ✓, MAC: ${macAddress || 'null'}, IP: ${ipAddress || 'null'})`,
       );
       return savedUser;
     } catch (error: any) {
