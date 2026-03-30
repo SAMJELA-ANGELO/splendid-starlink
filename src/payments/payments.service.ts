@@ -105,6 +105,19 @@ export class PaymentsService {
       
       this.logger.log(`✅ Payment initiated successfully: ${fapshiResponse.data.transId}`);
 
+      // Start background polling for webhook fallback
+      this.pollFapshiStatus(payment.fapshiTransactionId)
+        .then((res) => {
+          if (res && res.status) {
+            this.logger.log(`📡 Polling complete for ${payment.fapshiTransactionId} -> ${res.status}`);
+          } else {
+            this.logger.warn(`⌛ Polling complete for ${payment.fapshiTransactionId} with no terminal status`);
+          }
+        })
+        .catch((err) => {
+          this.logger.error(`❌ Polling error for ${payment.fapshiTransactionId}: ${err.message}`);
+        });
+
       return {
         paymentId: payment._id,
         transId: fapshiResponse.data.transId,
@@ -156,7 +169,13 @@ export class PaymentsService {
       // Activate user if payment succeeded
       if (response.data.status === 'SUCCESSFUL') {
         this.logger.log(`  4️⃣ Payment successful - activating user access`);
-        await this.activateUserAccess(payment);
+        const activationResult = await this.activateUserAccess(payment);
+        this.logger.log(`✅ Payment status check complete: ${transactionId}`);
+        return {
+          ...response.data,
+          activation: activationResult,
+          message: activationResult?.message || 'Payment completed and user activated'
+        };
       }
 
       this.logger.log(`✅ Payment status check complete: ${transactionId}`);
@@ -165,6 +184,39 @@ export class PaymentsService {
       this.logger.error(`❌ Payment status check failed for ${transactionId}: ${error.message}`);
       throw error;
     }
+  }
+
+  private async sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async pollFapshiStatus(transactionId: string, intervalMs = 2000, timeoutMs = 180000) {
+    this.logger.log(`🔁 Starting polling for Fapshi status fallback: ${transactionId}`);
+    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      this.logger.log(`  ⏱️ Poll attempt ${attempt}/${maxAttempts} for ${transactionId}`);
+      try {
+        const result = await this.checkPaymentStatus(transactionId);
+        const status = result?.status?.toString?.().toUpperCase?.();
+
+        if (status === 'SUCCESSFUL' || status === 'FAILED' || status === 'EXPIRED') {
+          this.logger.log(`  ✅ Terminal status reached for ${transactionId}: ${status}`);
+          return { status, result };
+        }
+
+        this.logger.log(`  ⏳ Current status for ${transactionId}: ${status || 'unknown'}`);
+      } catch (error: any) {
+        this.logger.warn(`  ⚠️ Poll attempt ${attempt} failed for ${transactionId}: ${error.message}`);
+      }
+
+      if (attempt < maxAttempts) {
+        await this.sleep(intervalMs);
+      }
+    }
+
+    this.logger.warn(`⌛ Polling timeout reached for ${transactionId} after ${timeoutMs / 1000}s`);
+    return null;
   }
 
   async handleWebhookNotification(data: any) {
@@ -219,20 +271,23 @@ export class PaymentsService {
       switch (statusResponse.data.status) {
         case 'SUCCESSFUL':
           this.logger.log(`  ✅ Payment SUCCESSFUL - activating user access`);
-          await this.activateUserAccess(payment);
-          break;
+          const activationResult = await this.activateUserAccess(payment);
+          return { 
+            success: true, 
+            status: statusResponse.data.status,
+            activation: activationResult,
+            message: activationResult?.message || 'Payment completed and user activated'
+          };
         case 'FAILED':
           this.logger.warn(`  ❌ Payment FAILED: ${data.transId}`);
-          break;
+          return { success: false, status: 'FAILED', message: 'Payment was declined' };
         case 'EXPIRED':
           this.logger.warn(`  ⏱️ Payment EXPIRED: ${data.transId}`);
-          break;
+          return { success: false, status: 'EXPIRED', message: 'Payment request has expired' };
         default:
           this.logger.warn(`  ⚠️ Unknown payment status: ${statusResponse.data.status}`);
+          return { success: false, status: statusResponse.data.status, message: 'Unknown payment status' };
       }
-
-      this.logger.log(`✅ Webhook notification processed successfully: ${data.transId}`);
-      return { success: true, status: statusResponse.data.status };
     } catch (error: any) {
       this.logger.error(`❌ Webhook notification error: ${error.message}`);
       return { success: false, error: error.message };
@@ -241,6 +296,9 @@ export class PaymentsService {
 
   private async activateUserAccess(payment: PaymentDocument) {
     this.logger.log(`🚀 Activating user access for payment: ${payment._id}`);
+    this.logger.log(`   📋 Payment details: planId=${payment.planId}, userId=${payment.userId}, status=${payment.status}`);
+    this.logger.log(`   📌 Device info: macAddress=${payment.macAddress}, routerIdentity=${payment.routerIdentity}`);
+    
     try {
       this.logger.log(`  1️⃣ Fetching plan details (ID: ${payment.planId})`);
       const plan = await this.plansService.findById(payment.planId);
@@ -312,6 +370,7 @@ export class PaymentsService {
           (payment as any).activeRouter = createUserResult.activeRouter; // Track which router
         } else {
           // Self-purchase: Create hotspot user AND bind MAC for instant access
+          this.logger.log(`  📌 Attempting MAC binding with: ${payment.macAddress}`);
           const activateResult = await this.mikrotikService.activateOnAvailableRouter(
             username,
             plan.duration,
@@ -321,6 +380,8 @@ export class PaymentsService {
           
           if (activateResult.macBound) {
             this.logger.log(`  ✅ MAC address automatically bound during activation`);
+          } else {
+            this.logger.warn(`  ⚠️ MAC binding result: ${activateResult.macBound}`);
           }
           (payment as any).activeRouter = activateResult.activeRouter; // Track which router
         }
@@ -360,6 +421,18 @@ export class PaymentsService {
       );
 
       this.logger.log(`✅ User activation complete: ${username}`);
+
+      // Return activation data for silent login on frontend
+      const activationResult = {
+        success: true,
+        username: username,
+        sessionExpiry: expiry.toISOString(),
+        readyForSilentLogin: !isGift, // Only true for self-purchase (not gift flow)
+        message: isGift ? 'Gift user created - recipient will log in manually' : 'User activated - ready for silent login'
+      };
+      
+      this.logger.log(`   📦 Returning activation result: ${JSON.stringify(activationResult)}`);
+      return activationResult;
     } catch (error: any) {
       this.logger.error(`❌ Error activating user access: ${error.message}`);
       
@@ -379,7 +452,13 @@ export class PaymentsService {
         },
       );
       
-      throw error;
+      // Return error result instead of throwing
+      return {
+        success: false,
+        error: error.message,
+        readyForSilentLogin: false,
+        message: `Activation failed: ${error.message}`
+      };
     }
   }
 

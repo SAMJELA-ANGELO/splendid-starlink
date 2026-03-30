@@ -37,6 +37,8 @@ export class AuthService {
           userId: user._id.toString(),
           username: user.username,
         },
+        planStatus: {} as any, // Will be set by controller
+        mikrotikAuth: {} as any, // Will be set by controller
       },
     };
   }

@@ -11,6 +11,7 @@ import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UsersService } from '../users/users.service';
 import { PaymentsService } from '../payments/payments.service';
+import { MikrotikService } from '../mikrotik/mikrotik.service';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -21,13 +22,14 @@ export class AuthController {
     private authService: AuthService,
     private usersService: UsersService,
     private paymentsService: PaymentsService,
+    private mikrotikService: MikrotikService,
   ) {}
 
   @ApiOperation({ summary: 'User login with username and password' })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
     status: 200,
-    description: 'Login successful, JWT token returned',
+    description: 'Login successful, JWT token returned. For WiFi logins, also authenticates with MikroTik.',
     schema: {
       example: {
         success: true,
@@ -35,6 +37,7 @@ export class AuthController {
         data: {
           token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
           user: { id: '507f1f77bcf86cd799439011', username: 'john_doe' },
+          mikrotikAuth: { success: true, message: 'Authenticated with MikroTik' }
         },
       },
     },
@@ -44,7 +47,63 @@ export class AuthController {
   @Post('login')
   async login(@Request() req, @Body() body: LoginDto) {
     this.logger.log(`🔑 Login attempt for user: ${body.username}`);
+    
+    const user = req.user;
+    const now = new Date();
+    const planExpired = !user.isActive || !user.sessionExpiry || now > user.sessionExpiry;
+    
+    // Dashboard login is allowed even for expired users (they need access to renew)
+    if (planExpired && !body.fromWifi) {
+      this.logger.warn(`⚠️ Expired user ${body.username} logging in to dashboard for renewal`);
+    } else if (!planExpired) {
+      this.logger.log(`✅ User has active plan, remaining: ${user.sessionExpiry}`);
+    }
+    
     const result = await this.authService.login(req.user);
+    
+    // Add plan status to response (frontend uses this for banner/UI)
+    result.data.planStatus = {
+      planExpired,
+      isActive: user.isActive,
+      sessionExpiry: user.sessionExpiry,
+      remainingHours: user.sessionExpiry
+        ? Math.round((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60))
+        : 0,
+    };
+
+    // If from WiFi with expired plan: do not activate MikroTik. This lets user access dashboard for renewal only.
+    if (body.fromWifi && planExpired) {
+      this.logger.warn(`⚠️ Expired user ${body.username} attempted WiFi login, skipping MikroTik activation`);
+      result.data.mikrotikAuth = {
+        success: false,
+        message: 'Your subscription has expired. No internet access until plan is renewed.',
+      };
+    }
+    
+    // If coming from WiFi and plan is ACTIVE, authenticate with MikroTik.
+    if (body.fromWifi && !planExpired) {
+      this.logger.log(`📡 WiFi login detected - authenticating with MikroTik for ${user.username}`);
+      
+      // For returning users: if no MAC stored but user has active plan, grant access
+      const shouldAuthenticate = user.macAddress || (!user.macAddress && !planExpired);
+      
+      if (shouldAuthenticate) {
+        try {
+          await this.mikrotikService.activateUser(
+            user.username,
+            Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60))
+          );
+          this.logger.log(`✅ MikroTik authentication successful for ${user.username}`);
+          result.data.mikrotikAuth = { success: true, message: 'Authenticated with MikroTik' };
+        } catch (mikrotikError: any) {
+          this.logger.warn(`⚠️ MikroTik authentication warning: ${mikrotikError.message}`);
+          result.data.mikrotikAuth = { success: false, message: mikrotikError.message };
+        }
+      } else {
+        this.logger.log(`ℹ️ Skipping MikroTik auth - no MAC and plan expired for ${user.username}`);
+        result.data.mikrotikAuth = { success: false, message: 'No active plan for WiFi access' };
+      }
+    }
     
     // Auto-reconnect user to WiFi if they have an active session
     this.logger.log(`🔄 Checking for active session to reconnect...`);
@@ -81,8 +140,17 @@ export class AuthController {
   @Post('register')
   async register(@Body() body: SignupDto) {
     this.logger.log(`📝 Registration attempt for user: ${body.username}`);
+    if (body.macAddress) {
+      this.logger.log(`   📌 WiFi Session: MAC=${body.macAddress}, Router=${body.routerIdentity || 'unknown'}`);
+    }
+    
     try {
-      const user = await this.usersService.create(body.username, body.password);
+      const user = await this.usersService.create(
+        body.username, 
+        body.password,
+        body.macAddress,
+        body.routerIdentity
+      );
       this.logger.log(
         `✅ User registered successfully: ${body.username} (ID: ${user._id})`,
       );
@@ -99,6 +167,72 @@ export class AuthController {
       this.logger.error(
         `❌ Registration failed for user: ${body.username} - ${error.message}`,
       );
+      throw error;
+    }
+  }
+
+  @ApiOperation({ summary: 'Check if MAC address has active plan' })
+  @ApiBody({
+    schema: {
+      example: { mac: 'AA:BB:CC:DD:EE:FF' },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'MAC check result - returns username if user has active plan',
+    schema: {
+      example: {
+        exists: true,
+        username: 'john_doe',
+        sessionExpiry: '2026-03-31T10:00:00Z',
+        remainingHours: 24,
+      },
+    },
+  })
+  @Post('check-mac')
+  async checkMac(@Body() body: { mac: string }) {
+    this.logger.log(`📌 Checking MAC address status: ${body.mac}`);
+    try {
+      // First try to find user with active session
+      const user = await this.usersService.findByMacWithActiveSession(body.mac);
+
+      if (user) {
+        this.logger.log(`✅ Active user found with MAC ${body.mac}: ${user.username}`);
+        return {
+          exists: true,
+          username: user.username,
+          sessionExpiry: user.sessionExpiry,
+          remainingHours: user.sessionExpiry
+            ? Math.round(
+                (user.sessionExpiry.getTime() - new Date().getTime()) / (1000 * 60 * 60),
+              )
+            : 0,
+          planStatus: 'active',
+        };
+      }
+      
+      // If no active user, check if there's a user with expired plan
+      const expiredUser = await this.usersService.findByMacIncludingExpired(body.mac);
+      if (expiredUser) {
+        this.logger.log(`⚠️ User with expired plan found with MAC ${body.mac}: ${expiredUser.username}`);
+        return {
+          exists: true,
+          username: expiredUser.username,
+          sessionExpiry: expiredUser.sessionExpiry,
+          remainingHours: 0,
+          planStatus: 'expired',
+          message: 'Your subscription has expired. Please login to renew your plan.',
+        };
+      }
+      
+      // No user found with this MAC
+      this.logger.log(`ℹ️ No user found with MAC: ${body.mac}`);
+      return {
+        exists: false,
+        message: 'No subscription found for this device',
+      };
+    } catch (error: any) {
+      this.logger.error(`❌ MAC check failed: ${error.message}`);
       throw error;
     }
   }

@@ -42,36 +42,5 @@ export class UsersController {
     }
   }
 
-  @ApiOperation({ summary: 'Get current authenticated user details' })
-  @ApiResponse({
-    status: 200,
-    description: 'User details retrieved successfully',
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Unauthorized - No valid JWT token provided',
-  })
-  @ApiBearerAuth('JWT')
-  @UseGuards(JwtAuthGuard)
-  @Get('me')
-  async getCurrentUser(@Request() req: any) {
-    this.logger.log(`👤 User details requested for userId: ${req.user.userId}`);
-    try {
-      const user = await this.usersService.findById(req.user.userId);
-      if (!user) {
-        throw new Error('User not found');
-      }
-      this.logger.log(`✅ User details retrieved for userId: ${req.user.userId}`);
-      return {
-        id: (user as any)._id?.toString(),
-        username: user.username,
-        isActive: user.isActive,
-        sessionExpiry: user.sessionExpiry,
-        purchasedBundles: user.purchasedBundles || [],
-      };
-    } catch (error) {
-      this.logger.error(`❌ Failed to retrieve user details for userId: ${req.user.userId}: ${error.message}`);
-      throw error;
-    }
-  }
+  // /users/me endpoint removed as requested
 }
