@@ -304,6 +304,7 @@ export class PaymentsService {
     this.logger.log(`🚀 Activating user access for payment: ${payment._id}`);
     this.logger.log(`   📋 Payment details: planId=${payment.planId}, userId=${payment.userId}, status=${payment.status}`);
     this.logger.log(`   📌 Device info: macAddress=${payment.macAddress}, routerIdentity=${payment.routerIdentity}`);
+    this.logger.log(`   🔐 Silent login info: userIp=${payment.userIp}, hasPassword=${!!payment.password}`);
     
     try {
       this.logger.log(`  1️⃣ Fetching plan details (ID: ${payment.planId})`);
@@ -365,16 +366,25 @@ export class PaymentsService {
       try {
         // For self-purchase with MAC & IP: Perform Silent Login to move user from Hosts to Active
         // For gifts: Just create hotspot user (recipient will log in manually)
-        if (!isGift && payment.macAddress && payment.userIp && payment.password) {
+        this.logger.log(`  📊 CHECKING SILENT LOGIN CONDITIONS:`);
+        this.logger.log(`     - isGift: ${isGift}`);
+        this.logger.log(`     - payment.macAddress: ${payment.macAddress}`);
+        this.logger.log(`     - payment.userIp: ${payment.userIp}`);
+        this.logger.log(`     - payment.password: ${payment.password ? '(present)' : '(MISSING)'}`);
+        
+        const canDoSilentLogin = !isGift && payment.macAddress && payment.userIp && payment.password;
+        this.logger.log(`     → RESULT: ${canDoSilentLogin ? '✅ YES - SILENT LOGIN' : '❌ NO - STANDARD CREATE USER'}`);
+        
+        if (canDoSilentLogin) {
           this.logger.log(`  🔐 SILENT LOGIN: Attempting forced login for ${username}`);
           this.logger.log(`     MAC: ${payment.macAddress}, IP: ${payment.userIp}`);
           
           // Call silentLogin to move user from Hosts to Active
           const silentLoginResult = await this.mikrotikService.silentLogin(
             username,
-            payment.password, // Use actual password from localStorage
-            payment.macAddress,
-            payment.userIp,
+            payment.password!, // Use actual password from localStorage (guaranteed by canDoSilentLogin check)
+            payment.macAddress!,
+            payment.userIp!,
             plan.duration,
           );
           this.logger.log(`  ✅ Silent login executed on router: ${silentLoginResult.activeRouter}`);
@@ -496,31 +506,38 @@ export class PaymentsService {
       const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
       this.logger.log(`  ✅ Remaining session time: ${remainingHours} hours`);
 
-      // Reactivate on MikroTik - ensure user exists (normal login method)
-      this.logger.log(`  3️⃣ Ensuring user exists on MikroTik router`);
+      // Reactivate on MikroTik - move user from Hosts to Active
+      this.logger.log(`  3️⃣ Reactivating user on MikroTik router (Hosts → Active)`);
       try {
-        // For returning users with MAC & IP: Attempt Silent Login
+        // For returning users with MAC & IP: Bind MAC and activate (full reconnect)
         // Otherwise: Just ensure hotspot user exists
-        if (user.macAddress && user.ipAddress && user.password) {
-          this.logger.log(`  🔐 SILENT LOGIN: Attempting forced login for returning user`);
+        if (user.macAddress && user.ipAddress) {
+          this.logger.log(`  📌 Full reconnection available - binding MAC and activating`);
           this.logger.log(`     MAC: ${user.macAddress}, IP: ${user.ipAddress}`);
           
-          const silentLoginResult = await this.mikrotikService.silentLogin(
-            user.username,
-            user.password, // Use actual password from user record
+          // Step 1: Bind MAC to device
+          this.logger.log(`  📌 Binding MAC to router...`);
+          await this.mikrotikService.bindMacOnAvailableRouter(
             user.macAddress,
-            user.ipAddress,
             remainingHours,
           );
-          this.logger.log(`  ✅ Silent login executed on router: ${silentLoginResult.activeRouter}`);
+          this.logger.log(`  ✅ MAC binding completed`);
+          
+          // Step 2: Activate user (moves from Hosts to Active)
+          this.logger.log(`  🔄 Activating user to grant internet access...`);
+          const activateResult = await this.mikrotikService.activateUser(
+            user.username,
+            remainingHours,
+          );
+          this.logger.log(`  ✅ User activated and moved to Active tab`);
         } else {
-          this.logger.log(`  📌 Creating hotspot user (normal login method): ${user.username}`);
+          this.logger.log(`  📌 Basic reconnection - creating hotspot user: ${user.username}`);
           const createUserResult = await this.mikrotikService.createHotspotUserOnly(
             user.username,
             remainingHours,
           );
           this.logger.log(`  ✅ Hotspot user verified on router: ${createUserResult.activeRouter}`);
-          this.logger.log(`  ℹ️ User will authenticate through normal MikroTik login`);
+          this.logger.log(`  ℹ️ User account exists on MikroTik (Hosts tab)`);
         }
 
       return { 
