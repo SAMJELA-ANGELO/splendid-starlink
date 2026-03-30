@@ -350,13 +350,18 @@ export class PaymentsService {
           this.logger.log(`  📌 MAC address found in payment: ${payment.macAddress}`);
         }
         
+        if (payment.userIp) {
+          userUpdateData.ipAddress = payment.userIp;
+          this.logger.log(`  🌐 IP address found in payment: ${payment.userIp}`);
+        }
+        
         if (payment.routerIdentity) {
           userUpdateData.routerIdentity = payment.routerIdentity;
           this.logger.log(`  🛰️ Router identity found: ${payment.routerIdentity}`);
         }
 
         await this.usersService.updateUser(targetUserId, userUpdateData);
-        this.logger.log(`  ✅ Payer marked as active in MongoDB`);
+        this.logger.log(`  ✅ Payer marked as active in MongoDB with device info`);
       } else {
         this.logger.log(`  4️⃣ Gift flow: Skipping payer's MongoDB update (recipient will log in manually)`);
       }
