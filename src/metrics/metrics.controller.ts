@@ -1,5 +1,18 @@
-import { Controller, Get, UseGuards, Request, Logger, Query } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  UseGuards,
+  Request,
+  Logger,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { MetricsService } from './metrics.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ConnectionMetricsResponseDto, HistoricalMetricsDto } from './dto';
@@ -15,7 +28,7 @@ export class MetricsController {
   @ApiOperation({
     summary: 'Get current connection metrics',
     description:
-      'Retrieves real-time metrics for the user\'s active connection, including download/upload speed, ' +
+      "Retrieves real-time metrics for the user's active connection, including download/upload speed, " +
       'latency, and signal strength. Returns mock data if no active session or router is unreachable.',
   })
   @ApiResponse({
@@ -33,16 +46,24 @@ export class MetricsController {
   })
   @UseGuards(JwtAuthGuard)
   @Get()
-  async getCurrentMetrics(@Request() req: any): Promise<ConnectionMetricsResponseDto> {
-    this.logger.log(`📊 Current metrics requested for user: ${req.user.userId}`);
+  async getCurrentMetrics(
+    @Request() req: any,
+  ): Promise<ConnectionMetricsResponseDto> {
+    this.logger.log(
+      `📊 Current metrics requested for user: ${req.user.userId}`,
+    );
     try {
-      const metrics = await this.metricsService.getCurrentMetrics(req.user.userId);
+      const metrics = await this.metricsService.getCurrentMetrics(
+        req.user.userId,
+      );
       this.logger.log(
         `✅ Current metrics retrieved for user: ${req.user.userId}, Connected: ${metrics.isConnected}`,
       );
       return metrics;
     } catch (error) {
-      this.logger.error(`❌ Failed to retrieve metrics for user: ${req.user.userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to retrieve metrics for user: ${req.user.userId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -70,18 +91,25 @@ export class MetricsController {
     name: 'hours',
     required: false,
     type: Number,
-    description: 'Number of hours to retrieve history for (default: 24, max: 168)',
+    description:
+      'Number of hours to retrieve history for (default: 24, max: 168)',
     example: 24,
   })
   @UseGuards(JwtAuthGuard)
   @Get('history')
-  async getHistoricalMetrics(@Request() req: any, @Query('hours') hours?: number): Promise<HistoricalMetricsDto> {
+  async getHistoricalMetrics(
+    @Request() req: any,
+    @Query('hours') hours?: number,
+  ): Promise<HistoricalMetricsDto> {
     const requestedHours = Math.min(hours || 24, 168); // Max 7 days
     this.logger.log(
       `📈 Historical metrics requested for user: ${req.user.userId}, hours: ${requestedHours}`,
     );
     try {
-      const metrics = await this.metricsService.getHistoricalMetrics(req.user.userId, requestedHours);
+      const metrics = await this.metricsService.getHistoricalMetrics(
+        req.user.userId,
+        requestedHours,
+      );
       this.logger.log(
         `✅ Historical metrics retrieved for user: ${req.user.userId}, Data points: ${metrics.measurements.length}`,
       );

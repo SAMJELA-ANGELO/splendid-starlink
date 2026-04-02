@@ -8,7 +8,10 @@ export class NotificationsService {
   /**
    * Send 30-minute warning notification to user
    */
-  async sendSessionWarning30min(user: User, remainingTime: number): Promise<void> {
+  async sendSessionWarning30min(
+    user: User,
+    remainingTime: number,
+  ): Promise<void> {
     try {
       this.logger.log(
         `📧 Sending 30-minute session warning to user: ${user.username}`,
@@ -40,7 +43,10 @@ export class NotificationsService {
   /**
    * Send 10-minute warning notification to user
    */
-  async sendSessionWarning10min(user: User, remainingTime: number): Promise<void> {
+  async sendSessionWarning10min(
+    user: User,
+    remainingTime: number,
+  ): Promise<void> {
     try {
       this.logger.log(
         `📧 Sending 10-minute session warning to user: ${user.username}`,

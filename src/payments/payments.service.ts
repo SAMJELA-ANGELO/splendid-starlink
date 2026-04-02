@@ -40,10 +40,13 @@ export class PaymentsService {
       this.logger.log(`  1️⃣ Fetching plan: ${planId}`);
       const plan = await this.plansService.findById(planId);
       if (!plan) throw new Error('Plan not found');
-      this.logger.log(`  ✅ Plan found: ${plan.name} (${plan.price} XAF, ${plan.duration}h)`);
+      this.logger.log(
+        `  ✅ Plan found: ${plan.name} (${plan.price} XAF, ${plan.duration}h)`,
+      );
 
       // Validation
-      if (!phone) throw new Error('Phone number is required for direct payment');
+      if (!phone)
+        throw new Error('Phone number is required for direct payment');
       if (!Number.isInteger(plan.price)) {
         throw new Error('Amount must be an integer');
       }
@@ -60,7 +63,20 @@ export class PaymentsService {
         userId: userId,
       };
 
-      if (email) paymentData.email = email;
+      if (email) {
+        // Sanitize email: trim whitespace and validate basic format
+        const sanitizedEmail = email.trim();
+        if (
+          sanitizedEmail &&
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sanitizedEmail)
+        ) {
+          paymentData.email = sanitizedEmail;
+        } else {
+          this.logger.warn(
+            `⚠️ Invalid email format: "${email}", skipping email in payment request`,
+          );
+        }
+      }
       if (externalId) paymentData.externalId = externalId;
       if (name) paymentData.name = name;
 
@@ -78,7 +94,9 @@ export class PaymentsService {
           timeout: 10000,
         },
       );
-      this.logger.log(`  ✅ Fapshi response received: TransID ${fapshiResponse.data.transId}`);
+      this.logger.log(
+        `  ✅ Fapshi response received: TransID ${fapshiResponse.data.transId}`,
+      );
 
       // Create and save payment record
       this.logger.log(`  4️⃣ Saving payment record to MongoDB`);
@@ -100,43 +118,59 @@ export class PaymentsService {
         fapshiResponse: fapshiResponse.data,
       });
       await payment.save();
-      
+
       if (macAddress) this.logger.log(`  📌 MAC address saved: ${macAddress}`);
       if (userIp) this.logger.log(`  🌐 User IP saved: ${userIp}`);
-      if (routerIdentity) this.logger.log(`  🛰️ Router identity saved: ${routerIdentity}`);
+      if (routerIdentity)
+        this.logger.log(`  🛰️ Router identity saved: ${routerIdentity}`);
       if (password) this.logger.log(`  🔐 Password saved for silent login`);
       if (isGift && recipientUsername) {
-        this.logger.log(`  🎁 Gift payment for recipient: ${recipientUsername}`);
+        this.logger.log(
+          `  🎁 Gift payment for recipient: ${recipientUsername}`,
+        );
       }
-      
-      this.logger.log(`✅ Payment initiated successfully: ${fapshiResponse.data.transId}`);
+
+      this.logger.log(
+        `✅ Payment initiated successfully: ${fapshiResponse.data.transId}`,
+      );
 
       // Start background polling for webhook fallback
       this.pollFapshiStatus(payment.fapshiTransactionId)
         .then((res) => {
           if (res && res.status) {
-            this.logger.log(`📡 Polling complete for ${payment.fapshiTransactionId} -> ${res.status}`);
+            this.logger.log(
+              `📡 Polling complete for ${payment.fapshiTransactionId} -> ${res.status}`,
+            );
           } else {
-            this.logger.warn(`⌛ Polling complete for ${payment.fapshiTransactionId} with no terminal status`);
+            this.logger.warn(
+              `⌛ Polling complete for ${payment.fapshiTransactionId} with no terminal status`,
+            );
           }
         })
         .catch((err) => {
-          this.logger.error(`❌ Polling error for ${payment.fapshiTransactionId}: ${err.message}`);
+          this.logger.error(
+            `❌ Polling error for ${payment.fapshiTransactionId}: ${err.message}`,
+          );
         });
 
       return {
         paymentId: payment._id,
         transId: fapshiResponse.data.transId,
-        message: 'Payment request sent to your mobile phone. Please complete payment on your device.',
+        message:
+          'Payment request sent to your mobile phone. Please complete payment on your device.',
       };
     } catch (error: any) {
-      this.logger.error(`❌ Payment initiation failed for user ${userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Payment initiation failed for user ${userId}: ${error.message}`,
+      );
       throw error;
     }
   }
 
   async checkPaymentStatus(transactionId: string) {
-    this.logger.log(`🔍 Checking payment status for transaction: ${transactionId}`);
+    this.logger.log(
+      `🔍 Checking payment status for transaction: ${transactionId}`,
+    );
     try {
       this.logger.log(`  1️⃣ Querying Fapshi API for status`);
       const response = await axios.get(
@@ -150,7 +184,9 @@ export class PaymentsService {
           timeout: 10000,
         },
       );
-      this.logger.log(`  ✅ Status received from Fapshi: ${response.data.status}`);
+      this.logger.log(
+        `  ✅ Status received from Fapshi: ${response.data.status}`,
+      );
 
       this.logger.log(`  2️⃣ Looking up payment record in MongoDB`);
       const payment = await this.paymentModel.findOne({
@@ -165,9 +201,11 @@ export class PaymentsService {
       // Update payment status (normalize to enum: lowercase for initial states)
       this.logger.log(`  3️⃣ Updating payment status in MongoDB`);
       const statusValue = response.data.status;
-      payment.status = statusValue && ['created', 'pending'].includes(statusValue.toLowerCase())
-        ? statusValue.toLowerCase()
-        : statusValue;
+      payment.status =
+        statusValue &&
+        ['created', 'pending'].includes(statusValue.toLowerCase())
+          ? statusValue.toLowerCase()
+          : statusValue;
       payment.fapshiResponse = response.data;
       await payment.save();
       this.logger.log(`  ✅ Payment status updated: ${payment.status}`);
@@ -180,14 +218,19 @@ export class PaymentsService {
         return {
           ...response.data,
           activation: activationResult,
-          message: activationResult?.message || 'Payment completed and user activated'
+          isGift: payment.isGift,
+          recipientUsername: payment.recipientUsername,
+          message:
+            activationResult?.message || 'Payment completed and user activated',
         };
       }
 
       this.logger.log(`✅ Payment status check complete: ${transactionId}`);
       return response.data;
     } catch (error: any) {
-      this.logger.error(`❌ Payment status check failed for ${transactionId}: ${error.message}`);
+      this.logger.error(
+        `❌ Payment status check failed for ${transactionId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -196,24 +239,42 @@ export class PaymentsService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private async pollFapshiStatus(transactionId: string, intervalMs = 2000, timeoutMs = 180000) {
-    this.logger.log(`🔁 Starting polling for Fapshi status fallback: ${transactionId}`);
+  private async pollFapshiStatus(
+    transactionId: string,
+    intervalMs = 2000,
+    timeoutMs = 180000,
+  ) {
+    this.logger.log(
+      `🔁 Starting polling for Fapshi status fallback: ${transactionId}`,
+    );
     const maxAttempts = Math.ceil(timeoutMs / intervalMs);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      this.logger.log(`  ⏱️ Poll attempt ${attempt}/${maxAttempts} for ${transactionId}`);
+      this.logger.log(
+        `  ⏱️ Poll attempt ${attempt}/${maxAttempts} for ${transactionId}`,
+      );
       try {
         const result = await this.checkPaymentStatus(transactionId);
         const status = result?.status?.toString?.().toUpperCase?.();
 
-        if (status === 'SUCCESSFUL' || status === 'FAILED' || status === 'EXPIRED') {
-          this.logger.log(`  ✅ Terminal status reached for ${transactionId}: ${status}`);
+        if (
+          status === 'SUCCESSFUL' ||
+          status === 'FAILED' ||
+          status === 'EXPIRED'
+        ) {
+          this.logger.log(
+            `  ✅ Terminal status reached for ${transactionId}: ${status}`,
+          );
           return { status, result };
         }
 
-        this.logger.log(`  ⏳ Current status for ${transactionId}: ${status || 'unknown'}`);
+        this.logger.log(
+          `  ⏳ Current status for ${transactionId}: ${status || 'unknown'}`,
+        );
       } catch (error: any) {
-        this.logger.warn(`  ⚠️ Poll attempt ${attempt} failed for ${transactionId}: ${error.message}`);
+        this.logger.warn(
+          `  ⚠️ Poll attempt ${attempt} failed for ${transactionId}: ${error.message}`,
+        );
       }
 
       if (attempt < maxAttempts) {
@@ -221,7 +282,9 @@ export class PaymentsService {
       }
     }
 
-    this.logger.warn(`⌛ Polling timeout reached for ${transactionId} after ${timeoutMs / 1000}s`);
+    this.logger.warn(
+      `⌛ Polling timeout reached for ${transactionId} after ${timeoutMs / 1000}s`,
+    );
     return null;
   }
 
@@ -250,7 +313,9 @@ export class PaymentsService {
           timeout: 10000,
         },
       );
-      this.logger.log(`  ✅ Fapshi verification complete: ${statusResponse.data.status}`);
+      this.logger.log(
+        `  ✅ Fapshi verification complete: ${statusResponse.data.status}`,
+      );
 
       this.logger.log(`  2️⃣ Looking up payment in database`);
       const payment = await this.paymentModel.findOne({
@@ -265,9 +330,11 @@ export class PaymentsService {
       // Update payment status (normalize to enum: lowercase for initial states)
       this.logger.log(`  3️⃣ Updating payment status`);
       const statusValue = statusResponse.data.status;
-      payment.status = statusValue && ['created', 'pending'].includes(statusValue.toLowerCase())
-        ? statusValue.toLowerCase()
-        : statusValue;
+      payment.status =
+        statusValue &&
+        ['created', 'pending'].includes(statusValue.toLowerCase())
+          ? statusValue.toLowerCase()
+          : statusValue;
       payment.fapshiResponse = statusResponse.data;
       await payment.save();
       this.logger.log(`  ✅ Payment status updated: ${payment.status}`);
@@ -278,21 +345,37 @@ export class PaymentsService {
         case 'SUCCESSFUL':
           this.logger.log(`  ✅ Payment SUCCESSFUL - activating user access`);
           const activationResult = await this.activateUserAccess(payment);
-          return { 
-            success: true, 
+          return {
+            success: true,
             status: statusResponse.data.status,
             activation: activationResult,
-            message: activationResult?.message || 'Payment completed and user activated'
+            message:
+              activationResult?.message ||
+              'Payment completed and user activated',
           };
         case 'FAILED':
           this.logger.warn(`  ❌ Payment FAILED: ${data.transId}`);
-          return { success: false, status: 'FAILED', message: 'Payment was declined' };
+          return {
+            success: false,
+            status: 'FAILED',
+            message: 'Payment was declined',
+          };
         case 'EXPIRED':
           this.logger.warn(`  ⏱️ Payment EXPIRED: ${data.transId}`);
-          return { success: false, status: 'EXPIRED', message: 'Payment request has expired' };
+          return {
+            success: false,
+            status: 'EXPIRED',
+            message: 'Payment request has expired',
+          };
         default:
-          this.logger.warn(`  ⚠️ Unknown payment status: ${statusResponse.data.status}`);
-          return { success: false, status: statusResponse.data.status, message: 'Unknown payment status' };
+          this.logger.warn(
+            `  ⚠️ Unknown payment status: ${statusResponse.data.status}`,
+          );
+          return {
+            success: false,
+            status: statusResponse.data.status,
+            message: 'Unknown payment status',
+          };
       }
     } catch (error: any) {
       this.logger.error(`❌ Webhook notification error: ${error.message}`);
@@ -302,25 +385,61 @@ export class PaymentsService {
 
   private async activateUserAccess(payment: PaymentDocument) {
     this.logger.log(`🚀 Activating user access for payment: ${payment._id}`);
-    this.logger.log(`   📋 Payment details: planId=${payment.planId}, userId=${payment.userId}, status=${payment.status}`);
-    this.logger.log(`   📌 Device info: macAddress=${payment.macAddress}, routerIdentity=${payment.routerIdentity}`);
-    this.logger.log(`   🔐 Silent login info: userIp=${payment.userIp}, hasPassword=${!!payment.password}`);
-    
+    this.logger.log(
+      `   📋 Payment details: planId=${payment.planId}, userId=${payment.userId}, status=${payment.status}`,
+    );
+    this.logger.log(
+      `   📌 Device info: macAddress=${payment.macAddress}, routerIdentity=${payment.routerIdentity}`,
+    );
+    this.logger.log(
+      `   🔐 Silent login info: userIp=${payment.userIp}, hasPassword=${!!payment.password}`,
+    );
+
     try {
       this.logger.log(`  1️⃣ Fetching plan details (ID: ${payment.planId})`);
       const plan = await this.plansService.findById(payment.planId);
       if (!plan) throw new Error('Plan not found');
-      this.logger.log(`  ✅ Plan found: ${plan.name} (${plan.duration}h duration)`);
+      this.logger.log(
+        `  ✅ Plan found: ${plan.name} (${plan.duration}h duration)`,
+      );
 
       const isGift = payment.isGift || false;
       let username: string;
       let targetUserId: string;
+      let needsReactivation = false;
 
       if (isGift && payment.recipientUsername) {
         // Gift flow: activate recipient's username
         username = payment.recipientUsername;
-        targetUserId = payment.userId; // Still log against payer for audit, but activate recipient
-        this.logger.log(`  🎁 GIFT FLOW: Activating for recipient: ${username}`);
+        this.logger.log(
+          `  🎁 GIFT FLOW: Activating for recipient: ${username}`,
+        );
+
+        // Check if recipient exists
+        this.logger.log(`  2️⃣ Checking if recipient exists: ${username}`);
+        let recipient = await this.usersService.findByUsername(username);
+
+        if (!recipient) {
+          // Create new recipient user
+          this.logger.log(`  ➕ Recipient doesn't exist, creating new user: ${username}`);
+          recipient = await this.usersService.create(
+            username,
+            payment.password || username, // Use provided password or default to username
+            undefined, // macAddress - not known for gifts
+            undefined, // ipAddress - not known for gifts
+            undefined, // routerIdentity - not known for gifts
+          );
+          this.logger.log(`  ✅ New recipient user created: ${(recipient as any)._id}`);
+          needsReactivation = false; // New user, not reactivation
+        } else {
+          this.logger.log(`  ✅ Recipient found: ${recipient.username} (${recipient.isActive ? 'Active' : 'Inactive'})`);
+          needsReactivation = !recipient.isActive;
+          if (needsReactivation) {
+            this.logger.log(`  🔄 Recipient needs reactivation`);
+          }
+        }
+
+        targetUserId = (recipient as any)._id; // Use recipient's ID for database updates
       } else {
         // Self-purchase flow: activate payer's username
         this.logger.log(`  2️⃣ Fetching user details (ID: ${payment.userId})`);
@@ -329,52 +448,82 @@ export class PaymentsService {
         this.logger.log(`  ✅ User found: ${user.username}`);
         username = user.username;
         targetUserId = payment.userId;
+
+        // Check if user is deactivated and needs reactivation
+        needsReactivation = !user.isActive;
       }
 
-      this.logger.log(`  3️⃣ Calculating session expiry (${plan.duration} hours from now)`);
+      this.logger.log(
+        `  3️⃣ Calculating session expiry (${plan.duration} hours from now)`,
+      );
       const expiry = new Date();
       expiry.setHours(expiry.getHours() + plan.duration);
       this.logger.log(`  ✅ Session will expire on: ${expiry.toISOString()}`);
 
-      // For self-purchase: Update payer's user record with MAC binding
-      // For gift: Skip MAC binding (recipient's device not known yet)
-      if (!isGift) {
-        this.logger.log(`  4️⃣ Updating payer's user status in MongoDB`);
-        const userUpdateData: any = {
-          isActive: true,
-          sessionExpiry: expiry,
-        };
+      // Update user record in MongoDB (recipient for gifts, payer for self-purchase)
+      this.logger.log(`  4️⃣ Checking user activation status in MongoDB`);
 
-        if (payment.macAddress) {
-          userUpdateData.macAddress = payment.macAddress;
-          this.logger.log(`  📌 MAC address found in payment: ${payment.macAddress}`);
-        }
-        
-        if (payment.userIp) {
-          userUpdateData.ipAddress = payment.userIp;
-          this.logger.log(`  🌐 IP address found in payment: ${payment.userIp}`);
-        }
-        
-        if (payment.routerIdentity) {
-          userUpdateData.routerIdentity = payment.routerIdentity;
-          this.logger.log(`  🛰️ Router identity found: ${payment.routerIdentity}`);
-        }
-
-        await this.usersService.updateUser(targetUserId, userUpdateData);
-        this.logger.log(`  ✅ Payer marked as active in MongoDB with device info`);
+      if (needsReactivation) {
+        this.logger.log(
+          `  🔄 USER NEEDS REACTIVATION: ${username} was deactivated, reactivating...`,
+        );
       } else {
-        this.logger.log(`  4️⃣ Gift flow: Skipping payer's MongoDB update (recipient will log in manually)`);
+        this.logger.log(
+          `  📝 User activation status: ${isGift ? 'New recipient or extending recipient session' : 'New user or extending active session'}`,
+        );
       }
 
+      const userUpdateData: any = {
+        isActive: true,
+        sessionExpiry: expiry,
+      };
+
+      // For gifts, we don't have device info since recipient logs in manually
+      // For self-purchase, include device info for silent login
+      if (!isGift) {
+        if (payment.macAddress) {
+          userUpdateData.macAddress = payment.macAddress;
+          this.logger.log(
+            `  📌 MAC address found in payment: ${payment.macAddress}`,
+          );
+        }
+
+        if (payment.userIp) {
+          userUpdateData.ipAddress = payment.userIp;
+          this.logger.log(
+            `  🌐 IP address found in payment: ${payment.userIp}`,
+          );
+        }
+
+        if (payment.routerIdentity) {
+          userUpdateData.routerIdentity = payment.routerIdentity;
+          this.logger.log(
+            `  🛰️ Router identity found: ${payment.routerIdentity}`,
+          );
+        }
+      }
+
+      await this.usersService.updateUser(targetUserId, userUpdateData);
+      this.logger.log(
+        `  ✅ ${isGift ? 'Recipient' : 'User'} ${needsReactivation ? 'reactivated' : 'activated'} in MongoDB${isGift ? '' : ' with device info'}`,
+      );
+
       // Activate on MikroTik - FIRST: Create hotspot user so device can connect normally
-      this.logger.log(`  5️⃣ Creating hotspot user on MikroTik router`);
+      this.logger.log(
+        `  5️⃣ ${needsReactivation ? 'Reactivating' : 'Creating'} hotspot user on MikroTik router`,
+      );
       try {
-        this.logger.log(`  📌 Creating hotspot user account: ${username}`);
-        const createUserResult = await this.mikrotikService.createHotspotUserOnly(
-          username,
-          plan.duration,
+        this.logger.log(
+          `  📌 ${needsReactivation ? 'Reactivating' : 'Creating'} hotspot user account: ${username}`,
         );
-        this.logger.log(`  ✅ Hotspot user created on router: ${createUserResult.activeRouter}`);
+        const createUserResult =
+          await this.mikrotikService.createHotspotUserOnly(
+            username,
+            plan.duration,
+          );
+        this.logger.log(
+          `  ✅ Hotspot user ${needsReactivation ? 'reactivated' : 'created'} on router: ${createUserResult.activeRouter}`,
+        );
         (payment as any).activeRouter = createUserResult.activeRouter;
 
         // Check if we can attempt silent login after device connects
@@ -382,18 +531,31 @@ export class PaymentsService {
         this.logger.log(`     - isGift: ${isGift}`);
         this.logger.log(`     - payment.macAddress: ${payment.macAddress}`);
         this.logger.log(`     - payment.userIp: ${payment.userIp}`);
-        this.logger.log(`     - payment.password: ${payment.password ? '(present)' : '(MISSING)'}`);
-        
-        const canAttemptSilentLogin = !isGift && payment.macAddress && payment.userIp && payment.password;
+        this.logger.log(
+          `     - payment.password: ${payment.password ? '(present)' : '(MISSING)'}`,
+        );
+
+        const canAttemptSilentLogin =
+          !isGift && payment.macAddress && payment.userIp && payment.password;
         if (canAttemptSilentLogin) {
-          this.logger.log(`     → ✅ SILENT LOGIN AVAILABLE - Will attempt after device connects to WiFi`);
-          this.logger.log(`     📌 Device must connect to WiFi first to appear in /ip/hotspot/host`);
+          this.logger.log(
+            `     → ✅ SILENT LOGIN AVAILABLE - Will attempt after device connects to WiFi`,
+          );
+          this.logger.log(
+            `     📌 Device must connect to WiFi first to appear in /ip/hotspot/host`,
+          );
         } else {
-          this.logger.log(`     → ℹ️ STANDARD LOGIN ONLY - Device will authenticate via portal`);
+          this.logger.log(
+            `     → ℹ️ STANDARD LOGIN ONLY - Device will authenticate via portal`,
+          );
         }
       } catch (activateError: any) {
-        this.logger.error(`  ❌ MikroTik user creation failed: ${activateError.message}`);
-        throw new Error(`Failed to create user on any router: ${activateError.message}`);
+        this.logger.error(
+          `  ❌ MikroTik user creation failed: ${activateError.message}`,
+        );
+        throw new Error(
+          `Failed to create user on any router: ${activateError.message}`,
+        );
       }
 
       // Save activeRouter field for audit trail
@@ -408,7 +570,7 @@ export class PaymentsService {
         payment.userId,
         'payment_processed',
         'payment',
-        `${isGift ? `Gift: ` : ''}Payment of ${payment.amount} CFA processed successfully for ${plan_ref?.name || 'Plan'} (${plan_ref?.duration}h)`,
+        `${isGift ? `Gift: ` : ''}${needsReactivation ? 'Reactivation: ' : ''}Payment of ${payment.amount} CFA processed successfully for ${plan_ref?.name || 'Plan'} (${plan_ref?.duration}h)`,
         'success',
         {
           planName: plan_ref?.name,
@@ -418,6 +580,7 @@ export class PaymentsService {
           transactionId: payment.fapshiTransactionId,
           isGift,
           recipientUsername: payment.recipientUsername || undefined,
+          wasReactivation: needsReactivation,
         },
         undefined,
         {
@@ -426,22 +589,30 @@ export class PaymentsService {
         },
       );
 
-      this.logger.log(`✅ User activation complete: ${username}`);
+      this.logger.log(
+        `✅ ${isGift ? 'Gift recipient' : 'User'} ${needsReactivation ? 'reactivation' : 'activation'} complete: ${username}`,
+      );
 
-      // Return activation data for silent login on frontend
+      // Return activation data for silent login on frontend (only for self-purchase)
       const activationResult = {
         success: true,
         username: username,
         sessionExpiry: expiry.toISOString(),
-        readyForSilentLogin: true, // Enable silent login after payment
-        message: 'User activated - ready for silent login'
+        readyForSilentLogin: !isGift, // Silent login only available for self-purchase
+        message: isGift
+          ? `Gift activated for ${username} - recipient can now log in manually`
+          : `User ${needsReactivation ? 'reactivated' : 'activated'} - ready for silent login`,
+        wasReactivation: needsReactivation,
+        isGift: isGift,
       };
-      
-      this.logger.log(`   📦 Returning activation result: ${JSON.stringify(activationResult)}`);
+
+      this.logger.log(
+        `   📦 Returning activation result: ${JSON.stringify(activationResult)}`,
+      );
       return activationResult;
     } catch (error: any) {
       this.logger.error(`❌ Error activating user access: ${error.message}`);
-      
+
       // Log failed payment
       const plan_ref = await this.plansService.findById(payment.planId);
       await this.activitiesService.logActivity(
@@ -457,18 +628,24 @@ export class PaymentsService {
           error: error.message,
         },
       );
-      
+
       // Return error result instead of throwing
       return {
         success: false,
         error: error.message,
         readyForSilentLogin: false,
-        message: `Activation failed: ${error.message}`
+        message: `Activation failed: ${error.message}`,
       };
     }
   }
 
-  async reconnectUserIfNeeded(userId: string): Promise<{ reconnected: boolean; username?: string; remainingTime?: number; remainingHours?: number; reason?: string }> {
+  async reconnectUserIfNeeded(userId: string): Promise<{
+    reconnected: boolean;
+    username?: string;
+    remainingTime?: number;
+    remainingHours?: number;
+    reason?: string;
+  }> {
     this.logger.log(`🔄 Checking if user needs WiFi reconnection: ${userId}`);
     try {
       this.logger.log(`  1️⃣ Fetching user details (ID: ${userId})`);
@@ -480,28 +657,37 @@ export class PaymentsService {
       this.logger.log(`  ✅ User found: ${user.username}`);
 
       // Check if user has an active session
-      const isSessionActive = user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
-      
+      const isSessionActive =
+        user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
+
       if (!isSessionActive) {
         this.logger.log(`  ℹ️ User has no active session`);
         return { reconnected: false, reason: 'No active session' };
       }
 
-      this.logger.log(`  2️⃣ User has active session - calculating remaining time`);
+      this.logger.log(
+        `  2️⃣ User has active session - calculating remaining time`,
+      );
       const now = new Date();
       const remainingMs = user.sessionExpiry.getTime() - now.getTime();
       const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
       this.logger.log(`  ✅ Remaining session time: ${remainingHours} hours`);
 
       // Reactivate on MikroTik - move user from Hosts to Active
-      this.logger.log(`  3️⃣ Reactivating user on MikroTik router (Hosts → Active)`);
+      this.logger.log(
+        `  3️⃣ Reactivating user on MikroTik router (Hosts → Active)`,
+      );
       try {
         // For returning users with MAC & IP: Attempt silent login to move from Hosts to Active
         // Otherwise: Just ensure hotspot user exists
         if (user.macAddress && user.ipAddress) {
-          this.logger.log(`  📌 Attempting silent login - moving user from Hosts to Active`);
-          this.logger.log(`     MAC: ${user.macAddress}, IP: ${user.ipAddress}`);
-          
+          this.logger.log(
+            `  📌 Attempting silent login - moving user from Hosts to Active`,
+          );
+          this.logger.log(
+            `     MAC: ${user.macAddress}, IP: ${user.ipAddress}`,
+          );
+
           try {
             // Try to perform silent login to move user from Hosts to Active
             const silentLoginResult = await this.mikrotikService.silentLogin(
@@ -511,59 +697,90 @@ export class PaymentsService {
               user.ipAddress,
               remainingHours,
             );
-            this.logger.log(`  ✅ Silent login successful - user moved to Active tab on router: ${silentLoginResult.activeRouter}`);
-            return { 
-              reconnected: true, 
+            this.logger.log(
+              `  ✅ Silent login successful - user moved to Active tab on router: ${silentLoginResult.activeRouter}`,
+            );
+            return {
+              reconnected: true,
               username: user.username,
               remainingTime: remainingMs,
               remainingHours: remainingHours,
             };
           } catch (silentLoginError: any) {
             // Silent login failed - fallback to just ensuring user exists in hotspot
-            this.logger.log(`  ⚠️ Silent login failed: ${silentLoginError.message}`);
-            this.logger.log(`  📌 Falling back to basic hotspot user verification`);
-            const createUserResult = await this.mikrotikService.createHotspotUserOnly(
+            this.logger.log(
+              `  ⚠️ Silent login failed: ${silentLoginError.message}`,
+            );
+            this.logger.log(
+              `  📌 Falling back to basic hotspot user verification`,
+            );
+            const createUserResult =
+              await this.mikrotikService.createHotspotUserOnly(
+                user.username,
+                remainingHours,
+              );
+            this.logger.log(
+              `  ✅ User verified on hotspot Hosts tab on router: ${createUserResult.activeRouter}`,
+            );
+            this.logger.log(
+              `  ℹ️ User is ready for normal login or silent login once device connects`,
+            );
+          }
+        } else {
+          this.logger.log(
+            `  📌 Basic reconnection - ensuring hotspot user exists: ${user.username}`,
+          );
+          const createUserResult =
+            await this.mikrotikService.createHotspotUserOnly(
               user.username,
               remainingHours,
             );
-            this.logger.log(`  ✅ User verified on hotspot Hosts tab on router: ${createUserResult.activeRouter}`);
-            this.logger.log(`  ℹ️ User is ready for normal login or silent login once device connects`);
-          }
-        } else {
-          this.logger.log(`  📌 Basic reconnection - ensuring hotspot user exists: ${user.username}`);
-          const createUserResult = await this.mikrotikService.createHotspotUserOnly(
-            user.username,
-            remainingHours,
+          this.logger.log(
+            `  ✅ Hotspot user verified on router: ${createUserResult.activeRouter}`,
           );
-          this.logger.log(`  ✅ Hotspot user verified on router: ${createUserResult.activeRouter}`);
           this.logger.log(`  ℹ️ User account exists on MikroTik (Hosts tab)`);
         }
 
-      return { 
-        reconnected: true, 
-        username: user.username,
-        remainingTime: remainingMs,
-        remainingHours: remainingHours,
-      };
+        return {
+          reconnected: true,
+          username: user.username,
+          remainingTime: remainingMs,
+          remainingHours: remainingHours,
+        };
+      } catch (error: any) {
+        this.logger.error(`❌ Error reconnecting user: ${error.message}`);
+        // Log error but don't throw - user can still proceed even if reconnection fails
+        return {
+          reconnected: false,
+          reason: `Connection error: ${error.message}`,
+        };
+      }
     } catch (error: any) {
-      this.logger.error(`❌ Error reconnecting user: ${error.message}`);
-      // Log error but don't throw - user can still proceed even if reconnection fails
-      return { reconnected: false, reason: `Connection error: ${error.message}` };
+      this.logger.error(
+        `❌ Unexpected error in reconnectUserIfNeeded: ${error.message}`,
+      );
+      return {
+        reconnected: false,
+        reason: `Unexpected error: ${error.message}`,
+      };
     }
-  } catch (error: any) {
-    this.logger.error(`❌ Unexpected error in reconnectUserIfNeeded: ${error.message}`);
-    return { reconnected: false, reason: `Unexpected error: ${error.message}` };
   }
-}
 
-async getUserPayments(userId: string) {
+  async getUserPayments(userId: string) {
     this.logger.log(`📋 Fetching payment history for user: ${userId}`);
     try {
-      const payments = await this.paymentModel.find({ userId }).sort({ createdAt: -1 }).exec();
-      this.logger.log(`✅ Retrieved ${payments.length} payments for user: ${userId}`);
+      const payments = await this.paymentModel
+        .find({ userId })
+        .sort({ createdAt: -1 })
+        .exec();
+      this.logger.log(
+        `✅ Retrieved ${payments.length} payments for user: ${userId}`,
+      );
       return payments;
     } catch (error: any) {
-      this.logger.error(`❌ Error fetching payment history for user ${userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Error fetching payment history for user ${userId}: ${error.message}`,
+      );
       throw error;
     }
   }

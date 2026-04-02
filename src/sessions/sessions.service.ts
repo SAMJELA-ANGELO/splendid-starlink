@@ -23,10 +23,13 @@ export class SessionsService {
       }
 
       // Check if user has active session
-      const isSessionActive = user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
+      const isSessionActive =
+        user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
       const now = new Date();
       const sessionExpiry = user.sessionExpiry || now;
-      const remainingTime = isSessionActive ? Math.max(0, sessionExpiry.getTime() - now.getTime()) : 0;
+      const remainingTime = isSessionActive
+        ? Math.max(0, sessionExpiry.getTime() - now.getTime())
+        : 0;
 
       const session = {
         id: userId,
@@ -38,7 +41,9 @@ export class SessionsService {
         remainingTime: remainingTime,
       };
 
-      this.logger.log(`✅ Session retrieved for ${user.username}: Active=${isSessionActive}, Remaining=${remainingTime}ms`);
+      this.logger.log(
+        `✅ Session retrieved for ${user.username}: Active=${isSessionActive}, Remaining=${remainingTime}ms`,
+      );
       return session;
     } catch (error: any) {
       this.logger.error(`❌ Error getting current session: ${error.message}`);
@@ -46,7 +51,9 @@ export class SessionsService {
     }
   }
 
-  async getSessionStatus(userId: string): Promise<{ isActive: boolean; remainingTime?: number }> {
+  async getSessionStatus(
+    userId: string,
+  ): Promise<{ isActive: boolean; remainingTime?: number }> {
     this.logger.log(`⏱️ Getting session status for user: ${userId}`);
     try {
       const user = await this.usersService.findById(userId);
@@ -55,12 +62,16 @@ export class SessionsService {
         return { isActive: false };
       }
 
-      const isSessionActive = user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
-      const remainingTime = isSessionActive ? 
-        Math.max(0, user.sessionExpiry.getTime() - new Date().getTime()) : 0;
+      const isSessionActive =
+        user.isActive && user.sessionExpiry && new Date() < user.sessionExpiry;
+      const remainingTime = isSessionActive
+        ? Math.max(0, user.sessionExpiry.getTime() - new Date().getTime())
+        : 0;
 
       const status = { isActive: isSessionActive, remainingTime };
-      this.logger.log(`✅ Session status for ${user.username}: ${isSessionActive ? '🟢 Active' : '⛔ Inactive'} (${remainingTime}ms)`);
+      this.logger.log(
+        `✅ Session status for ${user.username}: ${isSessionActive ? '🟢 Active' : '⛔ Inactive'} (${remainingTime}ms)`,
+      );
       return status;
     } catch (error: any) {
       this.logger.error(`❌ Error getting session status: ${error.message}`);

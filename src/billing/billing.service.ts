@@ -45,7 +45,7 @@ export class BillingService {
       // Transform payments to invoice DTOs
       const invoices: InvoiceDto[] = payments.map((payment: any) => {
         const plan = plansMap.get(payment.planId);
-        
+
         return {
           id: payment._id?.toString(),
           planName: plan?.name || 'Unknown Plan',
@@ -63,17 +63,26 @@ export class BillingService {
       });
 
       // Calculate totals and date ranges
-      const totalAmountSpent = invoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+      const totalAmountSpent = invoices.reduce(
+        (sum, invoice) => sum + invoice.amount,
+        0,
+      );
       const sortedByDate = [...invoices].sort(
-        (a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime(),
+        (a, b) =>
+          new Date(a.purchaseDate).getTime() -
+          new Date(b.purchaseDate).getTime(),
       );
 
       const response: BillingHistoryResponseDto = {
         totalInvoices: invoices.length,
         totalAmountSpent,
         invoices,
-        startDate: sortedByDate.length > 0 ? sortedByDate[0].purchaseDate : undefined,
-        endDate: sortedByDate.length > 0 ? sortedByDate[sortedByDate.length - 1].purchaseDate : undefined,
+        startDate:
+          sortedByDate.length > 0 ? sortedByDate[0].purchaseDate : undefined,
+        endDate:
+          sortedByDate.length > 0
+            ? sortedByDate[sortedByDate.length - 1].purchaseDate
+            : undefined,
       };
 
       this.logger.log(
@@ -81,7 +90,9 @@ export class BillingService {
       );
       return response;
     } catch (error) {
-      this.logger.error(`❌ Failed to fetch billing history for user: ${userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to fetch billing history for user: ${userId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -90,9 +101,7 @@ export class BillingService {
     this.logger.log(`📊 Fetching billing stats for user: ${userId}`);
 
     try {
-      const payments = await this.paymentModel
-        .find({ userId })
-        .lean();
+      const payments = await this.paymentModel.find({ userId }).lean();
 
       if (!payments || payments.length === 0) {
         return {
@@ -115,9 +124,13 @@ export class BillingService {
         });
       }
 
-      const successfulPayments = payments.filter((p: any) => p.status === 'SUCCESSFUL');
+      const successfulPayments = payments.filter(
+        (p: any) => p.status === 'SUCCESSFUL',
+      );
       const failedPayments = payments.filter((p: any) => p.status === 'FAILED');
-      const giftsReceived = payments.filter((p: any) => p.isGift && p.recipientUsername === userId);
+      const giftsReceived = payments.filter(
+        (p: any) => p.isGift && p.recipientUsername === userId,
+      );
 
       let totalHoursPurchased = 0;
       successfulPayments.forEach((payment: any) => {
@@ -127,9 +140,13 @@ export class BillingService {
         }
       });
 
-      const totalSpent = successfulPayments.reduce((sum, p: any) => sum + p.amount, 0);
+      const totalSpent = successfulPayments.reduce(
+        (sum, p: any) => sum + p.amount,
+        0,
+      );
       const sortedByDate = [...payments].sort(
-        (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        (a: any, b: any) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       );
 
       return {
@@ -143,7 +160,9 @@ export class BillingService {
         endDate: sortedByDate[sortedByDate.length - 1]?.createdAt,
       };
     } catch (error) {
-      this.logger.error(`❌ Failed to fetch billing stats for user: ${userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to fetch billing stats for user: ${userId}: ${error.message}`,
+      );
       throw error;
     }
   }

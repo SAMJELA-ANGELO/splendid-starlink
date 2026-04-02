@@ -17,8 +17,8 @@ export class HealthController {
         uptime: 3600,
         service: 'starlink-hotspot-api',
         version: '1.0.0',
-        environment: 'development'
-      }
+        environment: 'development',
+      },
     },
   })
   @Get()
@@ -30,7 +30,7 @@ export class HealthController {
       uptime: process.uptime(),
       service: 'starlink-hotspot-api',
       version: '1.0.0',
-      environment: process.env.NODE_ENV || 'development'
+      environment: process.env.NODE_ENV || 'development',
     };
   }
 
@@ -39,7 +39,7 @@ export class HealthController {
     status: 200,
     description: 'Ping response',
     schema: {
-      example: { message: 'pong' }
+      example: { message: 'pong' },
     },
   })
   @Get('ping')
@@ -67,8 +67,8 @@ export class HealthController {
       dependencies: {
         database: 'connected', // Could add actual DB health check
         mikrotik: 'connected', // Could add actual Mikrotik health check
-        fapshi: 'available' // Could add actual Fapshi health check
-      }
+        fapshi: 'available', // Could add actual Fapshi health check
+      },
     };
     this.logger.log(`✅ Detailed health check complete`);
     return health;

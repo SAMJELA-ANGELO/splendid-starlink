@@ -13,7 +13,9 @@ export class KeepAliveService {
       const response = await axios.get(`${this.API_URL}/health/ping`, {
         timeout: 5000,
       });
-      this.logger.debug(`✅ Keep-alive ping successful: ${response.data.message}`);
+      this.logger.debug(
+        `✅ Keep-alive ping successful: ${response.data.message}`,
+      );
     } catch (error) {
       this.logger.warn(`⚠️ Keep-alive ping failed: ${error.message}`);
       // Log but don't throw - we want the cron job to keep running even if one ping fails

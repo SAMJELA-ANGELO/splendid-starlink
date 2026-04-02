@@ -21,7 +21,9 @@ export class MikrotikService implements OnModuleInit {
       );
     }
     this.proxyUrl = urlFromConfig;
-    this.logger.log(`MikroTik service configured with proxy URL: ${this.proxyUrl}`);
+    this.logger.log(
+      `MikroTik service configured with proxy URL: ${this.proxyUrl}`,
+    );
   }
 
   async createUser(username: string, password: string) {
@@ -42,11 +44,15 @@ export class MikrotikService implements OnModuleInit {
 
   async activateUser(username: string, durationHours: number) {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/activate`;
-    this.logger.log(`⏱️ Activating MikroTik user: ${username} (${durationHours}h)`);
+    this.logger.log(
+      `⏱️ Activating MikroTik user: ${username} (${durationHours}h)`,
+    );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
       const resp = await axios.post(url, { username, durationHours });
-      this.logger.log(`  ✅ User activated: ${username} for ${durationHours} hours`);
+      this.logger.log(
+        `  ✅ User activated: ${username} for ${durationHours} hours`,
+      );
       return resp.data;
     } catch (err: any) {
       this.logger.error(
@@ -74,7 +80,9 @@ export class MikrotikService implements OnModuleInit {
 
   async disableUser(username: string) {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/disable`;
-    this.logger.log(`🔒 Disabling MikroTik user: ${username} (keeping account)`);
+    this.logger.log(
+      `🔒 Disabling MikroTik user: ${username} (keeping account)`,
+    );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
       const resp = await axios.post(url, { username });
@@ -176,7 +184,9 @@ export class MikrotikService implements OnModuleInit {
 
   async bindMacToBypass(macAddress: string, durationHours: number = 0) {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/bind-mac`;
-    this.logger.log(`📌 Binding MAC address to bypass list: ${macAddress} (${durationHours}h)`);
+    this.logger.log(
+      `📌 Binding MAC address to bypass list: ${macAddress} (${durationHours}h)`,
+    );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
       const resp = await axios.post(url, { macAddress, durationHours });
@@ -206,7 +216,11 @@ export class MikrotikService implements OnModuleInit {
     }
   }
 
-  async activateOnAvailableRouter(username: string, durationHours: number, macAddress?: string) {
+  async activateOnAvailableRouter(
+    username: string,
+    durationHours: number,
+    macAddress?: string,
+  ) {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/activate-failover`;
     this.logger.log(
       `🔄 Activating user on available router (failover): ${username} (${durationHours}h)${
@@ -215,7 +229,11 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { username, durationHours, macAddress });
+      const resp = await axios.post(url, {
+        username,
+        durationHours,
+        macAddress,
+      });
       this.logger.log(`✅ User activated on router: ${resp.data.activeRouter}`);
       return resp.data;
     } catch (err: any) {
@@ -234,8 +252,12 @@ export class MikrotikService implements OnModuleInit {
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
       const resp = await axios.post(url, { username, durationHours });
-      this.logger.log(`✅ Hotspot user created on router: ${resp.data.activeRouter}`);
-      this.logger.log(`  ℹ️ User will log in manually; MAC will be captured on first login`);
+      this.logger.log(
+        `✅ Hotspot user created on router: ${resp.data.activeRouter}`,
+      );
+      this.logger.log(
+        `  ℹ️ User will log in manually; MAC will be captured on first login`,
+      );
       return resp.data;
     } catch (err: any) {
       this.logger.error(
@@ -245,9 +267,14 @@ export class MikrotikService implements OnModuleInit {
     }
   }
 
-  async bindMacOnAvailableRouter(macAddress: string, durationHours: number = 0) {
+  async bindMacOnAvailableRouter(
+    macAddress: string,
+    durationHours: number = 0,
+  ) {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/bind-mac-failover`;
-    this.logger.log(`🔄 Binding MAC on available router (failover): ${macAddress} (${durationHours}h)`);
+    this.logger.log(
+      `🔄 Binding MAC on available router (failover): ${macAddress} (${durationHours}h)`,
+    );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
       const resp = await axios.post(url, { macAddress, durationHours });
@@ -263,7 +290,9 @@ export class MikrotikService implements OnModuleInit {
 
   async unbindMacOnAvailableRouters(macAddress: string) {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/unbind-mac-failover`;
-    this.logger.log(`🔄 Removing MAC from available routers (failover): ${macAddress}`);
+    this.logger.log(
+      `🔄 Removing MAC from available routers (failover): ${macAddress}`,
+    );
     try {
       this.logger.log(`  1️⃣ Sending DELETE request to: ${url}`);
       const resp = await axios.delete(url, { params: { macAddress } });
@@ -277,15 +306,29 @@ export class MikrotikService implements OnModuleInit {
     }
   }
 
-  async silentLogin(username: string, password: string, macAddress: string, ipAddress: string, durationHours: number) {
+  async silentLogin(
+    username: string,
+    password: string,
+    macAddress: string,
+    ipAddress: string,
+    durationHours: number,
+  ) {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/silent-login`;
     this.logger.log(
       `🔐 Performing silent login for user: ${username} (MAC: ${macAddress}, IP: ${ipAddress}, ${durationHours}h)`,
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { username, password, macAddress, ipAddress, durationHours });
-      this.logger.log(`✅ Silent login successful on router: ${resp.data.activeRouter}`);
+      const resp = await axios.post(url, {
+        username,
+        password,
+        macAddress,
+        ipAddress,
+        durationHours,
+      });
+      this.logger.log(
+        `✅ Silent login successful on router: ${resp.data.activeRouter}`,
+      );
       this.logger.log(`  ℹ️ User is now actively connected to the hotspot`);
       return resp.data;
     } catch (err: any) {

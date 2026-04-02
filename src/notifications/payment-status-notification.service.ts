@@ -87,7 +87,9 @@ export class PaymentStatusNotificationService {
         switch (payment.status) {
           case 'created':
             // Payment just initiated
-            this.logger.log(`  📧 Initiated notification for: ${user.username}`);
+            this.logger.log(
+              `  📧 Initiated notification for: ${user.username}`,
+            );
             await this.paymentNotificationsService.sendPaymentInitiatedNotification(
               payment.userId,
               payment,
@@ -154,7 +156,9 @@ export class PaymentStatusNotificationService {
    */
   async resetNotificationFlags(paymentId: string) {
     try {
-      this.logger.log(`🔄 Resetting payment notification flags for: ${paymentId}`);
+      this.logger.log(
+        `🔄 Resetting payment notification flags for: ${paymentId}`,
+      );
       await this.paymentModel.findByIdAndUpdate(paymentId, {
         notificationInitiatedSent: null,
         notificationSuccessSent: null,

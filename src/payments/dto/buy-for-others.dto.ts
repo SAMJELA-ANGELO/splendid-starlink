@@ -5,7 +5,7 @@ export class BuyForOthersDto {
   @IsNotEmpty()
   @MinLength(3)
   @Matches(/^[a-zA-Z0-9_]+$/, {
-    message: 'Username can only contain letters, numbers, and underscores'
+    message: 'Username can only contain letters, numbers, and underscores',
   })
   targetUsername: string;
 
@@ -17,7 +17,7 @@ export class BuyForOthersDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^[67]\d{8}$/, {
-    message: 'Invalid phone number format. Use Fapshi format (e.g., 674818818)'
+    message: 'Invalid phone number format. Use Fapshi format (e.g., 674818818)',
   })
   phoneNumber: string;
 

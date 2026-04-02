@@ -27,17 +27,32 @@ export class PlansService {
     return plan;
   }
 
-  async create(planData: { name: string; price: number; duration: number }): Promise<Plan> {
-    this.logger.log(`➕ Creating new plan: ${planData.name} (${planData.price} XAF, ${planData.duration}h)`);
+  async create(planData: {
+    name: string;
+    price: number;
+    duration: number;
+  }): Promise<Plan> {
+    this.logger.log(
+      `➕ Creating new plan: ${planData.name} (${planData.price} XAF, ${planData.duration}h)`,
+    );
     const newPlan = new this.planModel(planData);
     const savedPlan = await newPlan.save();
-    this.logger.log(`✅ Plan created: ${savedPlan.name} (ID: ${savedPlan._id})`);
+    this.logger.log(
+      `✅ Plan created: ${savedPlan.name} (ID: ${savedPlan._id})`,
+    );
     return savedPlan;
   }
 
-  async update(id: string, updateData: Partial<{ name: string; price: number; duration: number }>): Promise<Plan | null> {
-    this.logger.log(`✏️ Updating plan ${id} with: ${JSON.stringify(updateData)}`);
-    const updatedPlan = await this.planModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
+  async update(
+    id: string,
+    updateData: Partial<{ name: string; price: number; duration: number }>,
+  ): Promise<Plan | null> {
+    this.logger.log(
+      `✏️ Updating plan ${id} with: ${JSON.stringify(updateData)}`,
+    );
+    const updatedPlan = await this.planModel
+      .findByIdAndUpdate(id, updateData, { new: true })
+      .exec();
     if (updatedPlan) {
       this.logger.log(`✅ Plan updated: ${updatedPlan.name}`);
     } else {

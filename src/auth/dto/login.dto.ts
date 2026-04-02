@@ -12,12 +12,20 @@ export class LoginDto {
   @MinLength(6)
   password: string;
 
-  @ApiProperty({ example: false, description: 'Whether login is from WiFi captive portal', required: false })
+  @ApiProperty({
+    example: false,
+    description: 'Whether login is from WiFi captive portal',
+    required: false,
+  })
   @IsOptional()
   @IsBoolean()
   fromWifi?: boolean;
 
-  @ApiProperty({ example: 'AA:BB:CC:DD:EE:FF', description: 'Device MAC address if from WiFi', required: false })
+  @ApiProperty({
+    example: 'AA:BB:CC:DD:EE:FF',
+    description: 'Device MAC address if from WiFi',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   macAddress?: string;

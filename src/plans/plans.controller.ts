@@ -1,5 +1,23 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards, Logger } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags, ApiParam, ApiBody, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+  Logger,
+} from '@nestjs/common';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiParam,
+  ApiBody,
+  ApiBearerAuth,
+  ApiSecurity,
+} from '@nestjs/swagger';
 import { PlansService } from './plans.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
@@ -46,7 +64,11 @@ export class PlansController {
   }
 
   @ApiOperation({ summary: 'Get a specific plan by ID' })
-  @ApiParam({ name: 'id', description: 'Plan ID', example: '507f1f77bcf86cd799439011' })
+  @ApiParam({
+    name: 'id',
+    description: 'Plan ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @ApiResponse({
     status: 200,
     description: 'Plan details',
@@ -99,20 +121,32 @@ export class PlansController {
   @ApiSecurity('JWT')
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Post()
-  async createPlan(@Body() body: { name: string; price: number; duration: number }) {
-    this.logger.log(`➕ Creating new plan: ${body.name} (Price: ${body.price}, Duration: ${body.duration}h)`);
+  async createPlan(
+    @Body() body: { name: string; price: number; duration: number },
+  ) {
+    this.logger.log(
+      `➕ Creating new plan: ${body.name} (Price: ${body.price}, Duration: ${body.duration}h)`,
+    );
     try {
       const plan = await this.plansService.create(body);
-      this.logger.log(`✅ Plan created successfully with ID: ${(plan as any)._id}`);
+      this.logger.log(
+        `✅ Plan created successfully with ID: ${(plan as any)._id}`,
+      );
       return plan;
     } catch (error: any) {
-      this.logger.error(`❌ Failed to create plan ${body.name}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to create plan ${body.name}: ${error.message}`,
+      );
       throw error;
     }
   }
 
   @ApiOperation({ summary: 'Update an existing plan' })
-  @ApiParam({ name: 'id', description: 'Plan ID', example: '507f1f77bcf86cd799439011' })
+  @ApiParam({
+    name: 'id',
+    description: 'Plan ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @ApiBody({
     schema: {
       example: {
@@ -143,7 +177,9 @@ export class PlansController {
     @Param('id') id: string,
     @Body() body: Partial<{ name: string; price: number; duration: number }>,
   ) {
-    this.logger.log(`✏️ Updating plan ${id} with data: ${JSON.stringify(body)}`);
+    this.logger.log(
+      `✏️ Updating plan ${id} with data: ${JSON.stringify(body)}`,
+    );
     try {
       const plan = await this.plansService.update(id, body);
       if (plan) {
@@ -159,7 +195,11 @@ export class PlansController {
   }
 
   @ApiOperation({ summary: 'Delete a plan' })
-  @ApiParam({ name: 'id', description: 'Plan ID', example: '507f1f77bcf86cd799439011' })
+  @ApiParam({
+    name: 'id',
+    description: 'Plan ID',
+    example: '507f1f77bcf86cd799439011',
+  })
   @ApiResponse({ status: 200, description: 'Plan deleted successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Plan not found' })

@@ -17,7 +17,11 @@ export class Activity {
   @Prop({ type: Object, default: {} })
   details: Record<string, any>; // Additional metadata about the action
 
-  @Prop({ type: String, enum: ['success', 'failed', 'pending', 'warning'], default: 'success' })
+  @Prop({
+    type: String,
+    enum: ['success', 'failed', 'pending', 'warning'],
+    default: 'success',
+  })
   status: string;
 
   @Prop({ type: String, default: null })

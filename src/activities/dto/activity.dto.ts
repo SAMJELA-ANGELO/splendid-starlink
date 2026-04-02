@@ -1,7 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ActivityDto {
-  @ApiProperty({ example: '507f1f77bcf86cd799439011', description: 'Activity ID' })
+  @ApiProperty({
+    example: '507f1f77bcf86cd799439011',
+    description: 'Activity ID',
+  })
   id: string;
 
   @ApiProperty({

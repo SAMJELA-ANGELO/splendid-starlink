@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Param, UseGuards, Request, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  UseGuards,
+  Request,
+  Logger,
+} from '@nestjs/common';
 import {
   ApiOperation,
   ApiResponse,
@@ -99,7 +107,8 @@ export class NotificationsController {
     description: 'Notification flags reset successfully',
     schema: {
       example: {
-        message: 'Session notification flags reset for user: 507f1f77bcf86cd799439011',
+        message:
+          'Session notification flags reset for user: 507f1f77bcf86cd799439011',
         timestamp: '2026-03-27T00:30:00Z',
       },
     },
@@ -111,7 +120,9 @@ export class NotificationsController {
   @Post('reset-session-flags/:userId')
   @UseGuards(JwtAuthGuard)
   async resetSessionNotificationFlags(@Param('userId') userId: string) {
-    this.logger.log(`🔄 Resetting session notification flags for user: ${userId}`);
+    this.logger.log(
+      `🔄 Resetting session notification flags for user: ${userId}`,
+    );
     await this.sessionNotificationService.resetNotificationFlags(userId);
     return {
       message: `Session notification flags reset for user: ${userId}`,
@@ -135,7 +146,8 @@ export class NotificationsController {
     description: 'Notification flags reset successfully',
     schema: {
       example: {
-        message: 'Payment notification flags reset for: 507f1f77bcf86cd799439011',
+        message:
+          'Payment notification flags reset for: 507f1f77bcf86cd799439011',
         timestamp: '2026-03-27T00:30:00Z',
       },
     },
@@ -147,7 +159,9 @@ export class NotificationsController {
   @Post('reset-payment-flags/:paymentId')
   @UseGuards(JwtAuthGuard)
   async resetPaymentNotificationFlags(@Param('paymentId') paymentId: string) {
-    this.logger.log(`🔄 Resetting payment notification flags for: ${paymentId}`);
+    this.logger.log(
+      `🔄 Resetting payment notification flags for: ${paymentId}`,
+    );
     await this.paymentNotificationService.resetNotificationFlags(paymentId);
     return {
       message: `Payment notification flags reset for: ${paymentId}`,
@@ -176,7 +190,8 @@ export class NotificationsController {
           {
             name: 'PaymentStatusNotificationService',
             schedule: 'Every 1 minute',
-            description: 'Checks payment status changes and sends notifications',
+            description:
+              'Checks payment status changes and sends notifications',
           },
         ],
         timestamp: '2026-03-27T00:30:00Z',
@@ -196,7 +211,10 @@ export class NotificationsController {
           schedule: 'Every 2 minutes (*/2 * * * *)',
           description:
             'Checks for expiring sessions and sends warnings at 30 min, 10 min, and at expiry',
-          endpoints: ['/notifications/check-session', '/notifications/reset-session-flags/:userId'],
+          endpoints: [
+            '/notifications/check-session',
+            '/notifications/reset-session-flags/:userId',
+          ],
         },
         {
           name: 'PaymentStatusNotificationService',

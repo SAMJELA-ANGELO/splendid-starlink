@@ -41,7 +41,9 @@ export class SessionCleanupService {
         return;
       }
 
-      this.logger.log(`  ✅ Found ${expiredUsers.length} expired user(s) to disable`);
+      this.logger.log(
+        `  ✅ Found ${expiredUsers.length} expired user(s) to disable`,
+      );
       this.logger.log(`  2️⃣ Processing disabled users...`);
 
       for (const user of expiredUsers) {
@@ -49,7 +51,9 @@ export class SessionCleanupService {
       }
 
       const elapsed = Date.now() - startTime;
-      this.logger.log(`✅ Session cleanup complete - disabled ${expiredUsers.length} user(s) in ${elapsed}ms`);
+      this.logger.log(
+        `✅ Session cleanup complete - disabled ${expiredUsers.length} user(s) in ${elapsed}ms`,
+      );
     } catch (error: any) {
       this.logger.error(`❌ Error during session cleanup: ${error.message}`);
     }
@@ -60,14 +64,22 @@ export class SessionCleanupService {
    */
   private async disableExpiredUser(user: UserDocument) {
     try {
-      this.logger.log(`  ⏱️ Disabling expired session for: ${user.username} (expired: ${user.sessionExpiry})`);
+      this.logger.log(
+        `  ⏱️ Disabling expired session for: ${user.username} (expired: ${user.sessionExpiry})`,
+      );
 
       // 1. Unbind MAC address using FAILOVER (try both Home and School routers)
       if (user.macAddress) {
         try {
-          this.logger.log(`    1️⃣ Removing MAC binding (failover): ${user.macAddress}`);
-          await this.mikrotikService.unbindMacOnAvailableRouters(user.macAddress);
-          this.logger.log(`    ✅ MAC address removed from bypass list(s): ${user.macAddress}`);
+          this.logger.log(
+            `    1️⃣ Removing MAC binding (failover): ${user.macAddress}`,
+          );
+          await this.mikrotikService.unbindMacOnAvailableRouters(
+            user.macAddress,
+          );
+          this.logger.log(
+            `    ✅ MAC address removed from bypass list(s): ${user.macAddress}`,
+          );
         } catch (macError: any) {
           this.logger.warn(
             `    ⚠️ Failed to unbind MAC ${user.macAddress}: ${macError.message} (will continue...)`,
@@ -78,7 +90,9 @@ export class SessionCleanupService {
 
       // 2. Disable user on MikroTik using FAILOVER (try both routers)
       try {
-        this.logger.log(`    2️⃣ Disabling user on available MikroTik routers (failover)`);
+        this.logger.log(
+          `    2️⃣ Disabling user on available MikroTik routers (failover)`,
+        );
         await this.mikrotikService.disableUser(user.username);
         this.logger.log(`    ✅ User disabled on MikroTik: ${user.username}`);
       } catch (mikrotikError: any) {

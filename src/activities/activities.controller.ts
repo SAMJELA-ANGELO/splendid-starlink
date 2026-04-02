@@ -1,8 +1,24 @@
-import { Controller, Get, UseGuards, Request, Logger, Query } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  UseGuards,
+  Request,
+  Logger,
+  Query,
+} from '@nestjs/common';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { ActivitiesService } from './activities.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RecentActivityResponseDto, ActivityStatsDto } from './dto/activity.dto';
+import {
+  RecentActivityResponseDto,
+  ActivityStatsDto,
+} from './dto/activity.dto';
 
 @ApiTags('Activities')
 @ApiBearerAuth('JWT')
@@ -101,11 +117,17 @@ export class ActivitiesController {
     this.logger.log(`📊 Activity stats requested for user: ${req.user.userId}`);
 
     try {
-      const stats = await this.activitiesService.getActivityStats(req.user.userId);
-      this.logger.log(`✅ Activity stats retrieved for user: ${req.user.userId}`);
+      const stats = await this.activitiesService.getActivityStats(
+        req.user.userId,
+      );
+      this.logger.log(
+        `✅ Activity stats retrieved for user: ${req.user.userId}`,
+      );
       return stats;
     } catch (error) {
-      this.logger.error(`❌ Failed to retrieve activity stats for user: ${req.user.userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to retrieve activity stats for user: ${req.user.userId}: ${error.message}`,
+      );
       throw error;
     }
   }

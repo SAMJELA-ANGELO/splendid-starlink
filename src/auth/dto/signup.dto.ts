@@ -12,17 +12,29 @@ export class SignupDto {
   @MinLength(6)
   password: string;
 
-  @ApiProperty({ example: 'AA:BB:CC:DD:EE:FF', description: 'Device MAC address (from WiFi redirect)', required: false })
+  @ApiProperty({
+    example: 'AA:BB:CC:DD:EE:FF',
+    description: 'Device MAC address (from WiFi redirect)',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   macAddress?: string;
 
-  @ApiProperty({ example: '192.168.1.100', description: 'Device IP address (from WiFi redirect)', required: false })
+  @ApiProperty({
+    example: '192.168.1.100',
+    description: 'Device IP address (from WiFi redirect)',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   ipAddress?: string;
 
-  @ApiProperty({ example: 'Home', description: 'Router identity (from WiFi redirect)', required: false })
+  @ApiProperty({
+    example: 'Home',
+    description: 'Router identity (from WiFi redirect)',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   routerIdentity?: string;

@@ -1,1 +1,5 @@
-export { MetricsDto, ConnectionMetricsResponseDto, HistoricalMetricsDto } from './metrics.dto';
+export {
+  MetricsDto,
+  ConnectionMetricsResponseDto,
+  HistoricalMetricsDto,
+} from './metrics.dto';

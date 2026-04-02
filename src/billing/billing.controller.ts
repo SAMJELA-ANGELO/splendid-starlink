@@ -1,5 +1,10 @@
 import { Controller, Get, UseGuards, Request, Logger } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BillingHistoryResponseDto, BillingStatsDto } from './dto';
@@ -33,16 +38,24 @@ export class BillingController {
   })
   @UseGuards(JwtAuthGuard)
   @Get()
-  async getBillingHistory(@Request() req: any): Promise<BillingHistoryResponseDto> {
-    this.logger.log(`📋 Billing history requested for user: ${req.user.userId}`);
+  async getBillingHistory(
+    @Request() req: any,
+  ): Promise<BillingHistoryResponseDto> {
+    this.logger.log(
+      `📋 Billing history requested for user: ${req.user.userId}`,
+    );
     try {
-      const billingHistory = await this.billingService.getBillingHistory(req.user.userId);
+      const billingHistory = await this.billingService.getBillingHistory(
+        req.user.userId,
+      );
       this.logger.log(
         `✅ Billing history retrieved for user: ${req.user.userId}, Total: ${billingHistory.totalInvoices} invoices`,
       );
       return billingHistory;
     } catch (error) {
-      this.logger.error(`❌ Failed to retrieve billing history for user: ${req.user.userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to retrieve billing history for user: ${req.user.userId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -77,7 +90,9 @@ export class BillingController {
       );
       return stats;
     } catch (error) {
-      this.logger.error(`❌ Failed to retrieve billing stats for user: ${req.user.userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to retrieve billing stats for user: ${req.user.userId}: ${error.message}`,
+      );
       throw error;
     }
   }

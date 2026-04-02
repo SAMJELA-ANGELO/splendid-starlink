@@ -63,9 +63,7 @@ export class SessionNotificationService {
           timeRemaining <= this.THIRTY_MIN_THRESHOLD &&
           !user.notification30minSent
         ) {
-          this.logger.log(
-            `  ⏰ 30-minute warning for: ${user.username}`,
-          );
+          this.logger.log(`  ⏰ 30-minute warning for: ${user.username}`);
           await this.notificationsService.sendSessionWarning30min(
             user,
             timeRemaining,
@@ -82,9 +80,7 @@ export class SessionNotificationService {
           timeRemaining <= this.TEN_MIN_THRESHOLD &&
           !user.notification10minSent
         ) {
-          this.logger.log(
-            `  ⏰ 10-minute warning for: ${user.username}`,
-          );
+          this.logger.log(`  ⏰ 10-minute warning for: ${user.username}`);
           await this.notificationsService.sendSessionWarning10min(
             user,
             timeRemaining,
@@ -97,9 +93,7 @@ export class SessionNotificationService {
 
         // Session expired notification
         if (timeRemaining <= 0 && !user.notificationExpiredSent) {
-          this.logger.log(
-            `  ⛔ Expired notification for: ${user.username}`,
-          );
+          this.logger.log(`  ⛔ Expired notification for: ${user.username}`);
           await this.notificationsService.sendSessionExpiredNotification(user);
           await this.userModel.findByIdAndUpdate(user._id, {
             notificationExpiredSent: now,

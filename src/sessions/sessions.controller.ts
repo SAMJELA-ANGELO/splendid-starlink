@@ -22,7 +22,7 @@ export class SessionsController {
   @ApiOperation({
     summary: 'Get current user session details',
     description:
-      'Retrieves detailed information about the currently authenticated user\'s session. ' +
+      "Retrieves detailed information about the currently authenticated user's session. " +
       'This includes session ID, start time, data usage, and remaining session time. ' +
       'Requires a valid JWT token.',
   })
@@ -41,14 +41,24 @@ export class SessionsController {
   })
   @UseGuards(JwtAuthGuard)
   @Get('current')
-  async getCurrentSession(@Request() req): Promise<GetSessionResponseDto | null> {
-    this.logger.log(`📊 Current session requested for user: ${req.user.userId}`);
+  async getCurrentSession(
+    @Request() req,
+  ): Promise<GetSessionResponseDto | null> {
+    this.logger.log(
+      `📊 Current session requested for user: ${req.user.userId}`,
+    );
     try {
-      const session = await this.sessionsService.getCurrentSession(req.user.userId);
-      this.logger.log(`✅ Current session retrieved for user: ${req.user.userId}`);
+      const session = await this.sessionsService.getCurrentSession(
+        req.user.userId,
+      );
+      this.logger.log(
+        `✅ Current session retrieved for user: ${req.user.userId}`,
+      );
       return session;
     } catch (error) {
-      this.logger.error(`❌ Failed to retrieve current session for user: ${req.user.userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to retrieve current session for user: ${req.user.userId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -56,7 +66,7 @@ export class SessionsController {
   @ApiOperation({
     summary: 'Get session status',
     description:
-      'Retrieves the current status of an authenticated user\'s session. ' +
+      "Retrieves the current status of an authenticated user's session. " +
       'Returns whether the session is active and the remaining time in milliseconds. ' +
       'This is a lightweight endpoint useful for quick status checks.',
   })
@@ -78,11 +88,17 @@ export class SessionsController {
   async getSessionStatus(@Request() req): Promise<GetSessionStatusResponseDto> {
     this.logger.log(`⏱️ Session status requested for user: ${req.user.userId}`);
     try {
-      const status = await this.sessionsService.getSessionStatus(req.user.userId);
-      this.logger.log(`✅ Session status retrieved for user: ${req.user.userId}, Active: ${status.isActive}`);
+      const status = await this.sessionsService.getSessionStatus(
+        req.user.userId,
+      );
+      this.logger.log(
+        `✅ Session status retrieved for user: ${req.user.userId}, Active: ${status.isActive}`,
+      );
       return status;
     } catch (error) {
-      this.logger.error(`❌ Failed to retrieve session status for user: ${req.user.userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to retrieve session status for user: ${req.user.userId}: ${error.message}`,
+      );
       throw error;
     }
   }

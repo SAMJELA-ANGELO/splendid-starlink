@@ -14,8 +14,16 @@ export class UsersService {
     private mikrotikService: MikrotikService,
   ) {}
 
-  async create(username: string, password: string, macAddress?: string, ipAddress?: string, routerIdentity?: string): Promise<UserDocument> {
-    this.logger.log(`👤 Starting user creation process for username: ${username}`);
+  async create(
+    username: string,
+    password: string,
+    macAddress?: string,
+    ipAddress?: string,
+    routerIdentity?: string,
+  ): Promise<UserDocument> {
+    this.logger.log(
+      `👤 Starting user creation process for username: ${username}`,
+    );
     if (macAddress) {
       this.logger.log(`   📌 MAC Address: ${macAddress}`);
     }
@@ -25,7 +33,7 @@ export class UsersService {
     if (routerIdentity) {
       this.logger.log(`   🛰️ Router Identity: ${routerIdentity}`);
     }
-    
+
     try {
       // Step 1: Create user on MikroTik with plain password FIRST
       // This happens before hashing so we use the original password
@@ -87,7 +95,9 @@ export class UsersService {
 
   async updateUser(id: string, update: Partial<User>): Promise<User | null> {
     this.logger.log(`✏️ Updating user ${id} with: ${JSON.stringify(update)}`);
-    const updatedUser = await this.userModel.findByIdAndUpdate(id, update, { new: true }).exec();
+    const updatedUser = await this.userModel
+      .findByIdAndUpdate(id, update, { new: true })
+      .exec();
     if (updatedUser) {
       this.logger.log(`✅ User updated successfully: ${updatedUser.username}`);
     } else {
@@ -112,15 +122,19 @@ export class UsersService {
 
   async findByMacWithActiveSession(macAddress: string): Promise<User | null> {
     this.logger.log(`📌 Checking for active user with MAC: ${macAddress}`);
-    
-    const user = await this.userModel.findOne({
-      macAddress: macAddress,
-      isActive: true,
-      sessionExpiry: { $gt: new Date() }, // Session not expired
-    }).exec();
+
+    const user = await this.userModel
+      .findOne({
+        macAddress: macAddress,
+        isActive: true,
+        sessionExpiry: { $gt: new Date() }, // Session not expired
+      })
+      .exec();
 
     if (user) {
-      this.logger.log(`✅ Active user found with MAC ${macAddress}: ${user.username} (expires: ${user.sessionExpiry})`);
+      this.logger.log(
+        `✅ Active user found with MAC ${macAddress}: ${user.username} (expires: ${user.sessionExpiry})`,
+      );
       return user;
     } else {
       this.logger.warn(`⚠️ No active user found with MAC: ${macAddress}`);
@@ -129,15 +143,24 @@ export class UsersService {
   }
 
   async findByMacIncludingExpired(macAddress: string): Promise<User | null> {
-    this.logger.log(`📌 Checking for user with MAC (including expired): ${macAddress}`);
-    
-    const user = await this.userModel.findOne({
-      macAddress: macAddress,
-    }).exec();
+    this.logger.log(
+      `📌 Checking for user with MAC (including expired): ${macAddress}`,
+    );
+
+    const user = await this.userModel
+      .findOne({
+        macAddress: macAddress,
+      })
+      .exec();
 
     if (user) {
-      const isExpired = !user.isActive || !user.sessionExpiry || new Date() > user.sessionExpiry;
-      this.logger.log(`${isExpired ? '⚠️' : '✅'} User found with MAC ${macAddress}: ${user.username} (expired: ${isExpired})`);
+      const isExpired =
+        !user.isActive ||
+        !user.sessionExpiry ||
+        new Date() > user.sessionExpiry;
+      this.logger.log(
+        `${isExpired ? '⚠️' : '✅'} User found with MAC ${macAddress}: ${user.username} (expired: ${isExpired})`,
+      );
       return user;
     } else {
       this.logger.warn(`⚠️ No user found with MAC: ${macAddress}`);

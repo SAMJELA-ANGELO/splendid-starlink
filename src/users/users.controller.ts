@@ -1,5 +1,18 @@
-import { Controller, Post, Get, Body, Logger, UseGuards, Request } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Logger,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { SignupDto } from '../auth/dto/signup.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -31,13 +44,17 @@ export class UsersController {
     this.logger.log(`👤 User signup requested for username: ${body.username}`);
     try {
       const user = await this.usersService.create(body.username, body.password);
-      this.logger.log(`✅ User created successfully with ID: ${user._id?.toString()}, Username: ${user.username}`);
+      this.logger.log(
+        `✅ User created successfully with ID: ${user._id?.toString()}, Username: ${user.username}`,
+      );
       return {
         message: 'User created',
         user: { id: user._id?.toString(), username: user.username },
       };
     } catch (error) {
-      this.logger.error(`❌ User creation failed for username: ${body.username}: ${error.message}`);
+      this.logger.error(
+        `❌ User creation failed for username: ${body.username}: ${error.message}`,
+      );
       throw error;
     }
   }

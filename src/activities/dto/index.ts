@@ -1,1 +1,5 @@
-export { ActivityDto, RecentActivityResponseDto, ActivityStatsDto } from './activity.dto';
+export {
+  ActivityDto,
+  RecentActivityResponseDto,
+  ActivityStatsDto,
+} from './activity.dto';

@@ -9,7 +9,8 @@ export class GetSessionStatusResponseDto {
   isActive: boolean;
 
   @ApiProperty({
-    description: 'Remaining time in the session (in milliseconds). Only present if session is active.',
+    description:
+      'Remaining time in the session (in milliseconds). Only present if session is active.',
     example: 3600000,
     type: 'number',
     nullable: true,

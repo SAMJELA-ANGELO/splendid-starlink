@@ -1,98 +1,590 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# API Testing Guide
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+## 🌟 Latest Updates (April 2026)
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+### New Features Added:
+- ✅ User Reactivation - Users can reconnect after session expiry by purchasing new bundles
+- ✅ Gift Purchase Flow - Send WiFi access as gifts to new or existing users
+- ✅ Payment Success Page - Beautiful status page after successful payment
+- ✅ Auto-Redirect Flow - Seamless redirect from payment success to login portal
+- ✅ Email Sanitization - Robust email validation and formatting
+- ✅ Multi-Router Failover - Graceful fallback between multiple MikroTik routers
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Swagger Documentation
+All endpoints are fully documented and ready to test in Swagger:
+- **URL**: `http://localhost:3000/docs`
 
-## Project setup
+---
 
-```bash
-$ npm install
+## 💳 Payment System Endpoints
+
+### 1. Initiate Payment (Bundle Purchase)
+- **Path**: `POST /payments/initiate`
+- **Auth**: Not required (public)
+- **Description**: Start a bundle purchase via Fapshi mobile money
+- **Request Body**:
+```json
+{
+  "planId": "507f1f77bcf86cd799439011",
+  "phone": "237123456789",
+  "email": "john@example.com",
+  "macAddress": "02:1A:2B:3C:4D:5E",
+  "userIp": "192.168.1.100",
+  "routerIdentity": "Home",
+  "password": "secure123",
+  "externalId": "ext_12345",
+  "name": "John Doe"
+}
 ```
 
-## Compile and run the project
-
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+**Response**:
+```json
+{
+  "success": true,
+  "transId": "ABC123DEF456",
+  "phone": "237123456789",
+  "amount": 1000,
+  "currency": "XAF",
+  "redirect": "https://webhook.example.com",
+  "status": "created"
+}
 ```
 
-## Run tests
-
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+### 2. Initiate Gift Purchase
+- **Path**: `POST /payments/initiate` (with gift parameters)
+- **Auth**: Not required
+- **Description**: Send WiFi bundle as gift to recipient
+- **Request Body**:
+```json
+{
+  "planId": "507f1f77bcf86cd799439011",
+  "phone": "237123456789",
+  "email": "payer@example.com",
+  "isGift": true,
+  "recipientUsername": "recipient_user",
+  "password": "recipient_password_or_generated",
+  "externalId": "gift_12345",
+  "name": "John Doe"
+}
 ```
 
-## Deployment
+**Note**: 
+- If `recipientUsername` doesn't exist, it will be created
+- If recipient exists but is deactivated, they will be reactivated
+- Password can be auto-generated if not provided
+- No device info (MAC/IP) needed for gifts - recipient logs in manually
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+### 3. Check Payment Status
+- **Path**: `GET /payments/status/:transactionId`
+- **Auth**: Not required
+- **Description**: Poll Fapshi for payment status
+- **Path Parameters**: 
+  - `transactionId` - Transaction ID from initiate response
+  
+**Response (Successful Payment)**:
+```json
+{
+  "status": "SUCCESSFUL",
+  "transId": "ABC123DEF456",
+  "activation": {
+    "success": true,
+    "username": "john_doe",
+    "sessionExpiry": "2026-04-02T18:30:00Z",
+    "readyForSilentLogin": true,
+    "wasReactivation": false,
+    "isGift": false,
+    "message": "User activated - ready for silent login"
+  },
+  "isGift": false,
+  "recipientUsername": null,
+  "message": "Payment completed and user activated"
+}
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+**Response (Gift Payment)**:
+```json
+{
+  "status": "SUCCESSFUL",
+  "transId": "GIFT123456",
+  "activation": {
+    "success": true,
+    "username": "recipient_user",
+    "sessionExpiry": "2026-04-02T18:30:00Z",
+    "readyForSilentLogin": false,
+    "isGift": true,
+    "message": "Gift activated for recipient_user - recipient can now log in manually"
+  },
+  "isGift": true,
+  "recipientUsername": "recipient_user",
+  "message": "Gift payment completed"
+}
+```
 
-## Resources
+### 4. Get Payment History
+- **Path**: `GET /payments/history`
+- **Auth**: Required (Bearer JWT)
+- **Description**: Retrieve user's payment and invoice history
+- **Response**: Array of invoices with plan details, amounts, dates, and gift status
 
-Check out a few resources that may come in handy when working with NestJS:
+---
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## 🎁 Gift Purchase Workflow
 
-## Support
+### Complete Gift Flow (Step-by-Step)
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+**1. Payer Initiates Gift**
+```bash
+curl -X POST http://localhost:3001/payments/initiate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "planId": "507f1f77bcf86cd799439011",
+    "phone": "237123456789",
+    "email": "payer@example.com",
+    "isGift": true,
+    "recipientUsername": "Alice",
+    "password": "AlicePass123",
+    "externalId": "gift_timestamp"
+  }'
+```
 
-## Stay in touch
+**2. System Creates/Reactivates Recipient Automatically**
+- ✅ Checks if "Alice" exists
+- If not: Creates new user with:
+  - Username: Alice
+  - Email: alice@splendidstarlink.com
+  - Password: AlicePass123
+  - Status: Inactive (until payment confirms)
+- If exists but inactive: Marks for reactivation
+- If exists and active: Extends session
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+**3. Payer Sends Mobile Money**
+- User receives prompt on phone
+- Confirms payment via M-Pesa/Orange Money
+- Fapshi confirms transaction
 
-## License
+**4. Webhook Activation**
+- Backend receives webhook notification
+- Creates/updates MikroTik hotspot user for "Alice"
+- Sets session duration for recipient
+- Updates MongoDB with isActive: true
+- Logs activity with gift flag and reactivation status
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+**5. Payer Sees Success Page**
+```
+┌─────────────────────────────┐
+│  ✅ Payment Successful!     │
+│                             │
+│  Gift sent to: Alice       │
+│  Duration: 24 hours        │
+│                             │
+│  Login credentials:        │
+│  Username: alice           │
+│  Password: AlicePass123    │
+└─────────────────────────────┘
+```
+
+**6. Alice Can Log In**
+- Alice receives credentials from payer
+- Opens WiFi login portal (login.html)
+- Enters username: `Alice`
+- Enters password: `AlicePass123`
+- Gets internet access for 24 hours ✅
+
+### Gift Recipient Reactivation Example
+
+**Scenario**: Alice's previous gift expired 5 days ago
+```json
+Alice's current status:
+{
+  "_id": "...",
+  "username": "Alice",
+  "isActive": false,
+  "sessionExpiry": "2026-03-27T18:30:00Z"
+}
+```
+
+**When new gift is sent to Alice**:
+```
+1. System detects: needsReactivation = true (isActive is false)
+2. Logs: "Gift recipient Alice needs reactivation"
+3. Updates status:
+   - isActive: true
+   - sessionExpiry: 2026-04-02T18:30:00Z (new 24h window)
+4. MikroTik hotspot profile updated
+5. Alice can log in immediately ✅
+6. Activity log shows: "Gift: Reactivation: Payment processed"
+```
+
+---
+
+## 🔄 User Reactivation System
+
+### Reactivation Flow
+
+**When User's Session Expires**:
+```
+T+0h   → User logs in, isActive: true
+T+24h  → Session expires, isActive: false
+         User cannot connect
+```
+
+**When Expired User Buys New Bundle**:
+```
+1. Payment Initiated
+2. Fapshi Webhook: Status = SUCCESSFUL
+3. Backend activates:
+   - Checks isActive status → false
+   - Sets needsReactivation: true
+   - Updates isActive: true
+   - Sets new sessionExpiry
+   - MikroTik profile updated
+4. Returns message: "User reactivated - ready for silent login"
+5. User can reconnect immediately ✅
+```
+
+### Reactivation Indicators in Logs
+
+```
+✅ First-time activation:
+   "📝 User activation status: New user or extending active session"
+
+✅ Reactivation of expired user:
+   "🔄 USER NEEDS REACTIVATION: john_doe was deactivated, reactivating..."
+
+✅ Activity log entry:
+   "Reactivation: Payment of 1000 CFA processed successfully for 24h Plan (24h)"
+   wasReactivation: true
+```
+
+---
+
+## 💬 Email Validation & Sanitization
+
+### Email Handling
+
+**Problem Addressed**: 
+- Invalid email formats caused Fapshi rejections
+- Leading/trailing whitespace not handled
+- Special character issues
+
+**Solution Implemented**:
+```typescript
+// For phone-based payments:
+email = `${phoneNumber}@splendidstarlink.com`
+
+// Sanitization applied:
+1. Trim whitespace
+2. Convert to lowercase
+3. Remove invalid characters
+4. Validate format (RFC 5322 compliant)
+5. Max length validation (254 chars)
+6. Duplicate check in database
+
+// Examples:
+"  237123456789 @splendidstarlink.com  " 
+→ "237123456789@splendidstarlink.com" ✅
+
+"  INVALID @EMAIL  "
+→ Error: Invalid email format ❌
+```
+
+### Testing Email Validation
+
+```bash
+# Valid payment (correct format)
+curl -X POST http://localhost:3001/payments/initiate \
+  -d '{
+    "phone": "237123456789",
+    "email": "user@example.com"
+  }'
+
+# Email auto-generated from phone
+curl -X POST http://localhost:3001/payments/initiate \
+  -d '{
+    "phone": "237123456789"
+  }'
+# → email = "237123456789@splendidstarlink.com"
+
+# Invalid email rejected
+curl -X POST http://localhost:3001/payments/initiate \
+  -d '{
+    "email": "bad@@email"
+  }'
+# → 400 Bad Request: Invalid email format
+```
+
+---
+
+## 📋 Billing API Endpoints
+
+### 1. Get Billing History
+- **Path**: `GET /user/billing`
+- **Auth**: Required (Bearer JWT)
+- **Description**: Retrieve complete invoice history with plan details
+- **Response**: BillingHistoryResponseDto
+
+```json
+{
+  "totalInvoices": 5,
+  "totalAmountSpent": 5000,
+  "invoices": [
+    {
+      "id": "pay_123",
+      "planName": "24h Plan",
+      "amount": 1000,
+      "status": "SUCCESSFUL",
+      "purchaseDate": "2026-04-01T18:30:00Z",
+      "isGift": false,
+      "recipientUsername": null,
+      "activeRouter": "Home"
+    },
+    {
+      "id": "pay_456", 
+      "planName": "24h Plan",
+      "amount": 1000,
+      "status": "SUCCESSFUL",
+      "purchaseDate": "2026-03-30T15:45:00Z",
+      "isGift": true,
+      "recipientUsername": "Alice",
+      "activeRouter": "Home"
+    }
+  ]
+}
+```
+
+### 2. Get Billing Statistics
+- **Path**: `GET /user/billing/stats`
+- **Auth**: Required (Bearer JWT)
+- **Description**: Get aggregated billing statistics
+- **Response**: BillingStatsDto
+
+```json
+{
+  "totalPurchases": 5,
+  "totalSpent": 5000,
+  "totalHoursPurchased": 120,
+  "successfulPayments": 4,
+  "failedPayments": 1,
+  "giftsReceived": 0,
+  "giftsSent": 2,
+  "startDate": "2026-01-01T00:00:00Z",
+  "endDate": "2026-04-02T00:00:00Z"
+}
+```
+
+---
+
+## 📊 Metrics API Endpoints
+
+### 1. Get Current Metrics
+- **Path**: `GET /connection/metrics`
+- **Auth**: Required (Bearer JWT)
+- **Description**: Get real-time connection speed, latency, and signal strength
+- **Response**: ConnectionMetricsResponseDto
+
+```json
+{
+  "isConnected": true,
+  "metrics": {
+    "downloadSpeed": 85.5,
+    "uploadSpeed": 42.3,
+    "latency": 25,
+    "signalStrength": 98,
+    "connectionQuality": "good",
+    "timestamp": "2026-04-02T10:30:00Z"
+  },
+  "status": "active",
+  "dataUsed": 1234567890,
+  "sessionExpiry": "2026-04-02T18:30:00Z",
+  "router": "Home"
+}
+```
+
+### 2. Get Historical Metrics
+- **Path**: `GET /connection/metrics/history`
+- **Auth**: Required (Bearer JWT)
+- **Query Params**: 
+  - `hours` (optional, default: 24, max: 168)
+- **Description**: Get historical metrics data with averages
+- **Response**: HistoricalMetricsDto
+
+```json
+{
+  "measurements": [...],
+  "averageDownloadSpeed": 78.3,
+  "averageUploadSpeed": 39.8,
+  "averageLatency": 28.5,
+  "averageSignalStrength": 95.2,
+  "startTime": "2026-04-01T10:30:00Z",
+  "endTime": "2026-04-02T10:30:00Z"
+}
+```
+
+---
+
+## 🎯 Payment Success Page
+
+### Auto-Redirect Flow
+
+**Timeline**:
+```
+T+0s  → Payment confirmed, redirect shown (1 second)
+T+1s  → Redirect to /payment-success page
+T+1s  → Success page displays with countdown
+T+1-5s → Auto-redirect countdown (5 seconds)
+T+6s  → Auto-redirect to WiFi login portal
+        OR user clicks "Go to WiFi Login Portal" button
+```
+
+### Success Page Components
+
+```
+┌─────────────────────────────────────────┐
+│  Header: Green gradient success theme   │
+│  Icon: Large animated checkmark         │
+├─────────────────────────────────────────┤
+│  Title: "Payment Successful!"           │
+│  Message: Based on payment type         │
+│           (self-purchase vs gift)       │
+├─────────────────────────────────────────┤
+│  Session Details Section:               │
+│  ├─ Username                           │
+│  ├─ Duration (e.g., "24 hours")        │
+│  └─ Plan type indicator                │
+├─────────────────────────────────────────┤
+│  Instructions: What to do next          │
+│  ├─ Step 1: Connect to WiFi            │
+│  ├─ Step 2: Click portal button        │
+│  └─ Step 3: Log in                     │
+├─────────────────────────────────────────┤
+│  Auto-Redirect Countdown:               │
+│  "Redirecting in 5 seconds..."          │
+├─────────────────────────────────────────┤
+│  Buttons:                               │
+│  - Green: "Go to WiFi Login Portal"    │
+│  - Gray: "Return to Dashboard"         │
+└─────────────────────────────────────────┘
+```
+
+### Success Page URL
+```
+https://example.com/payment-success
+
+Storage Keys Populated by PaymentStatusMonitor:
+- wifiSessionUsername
+- wifiSessionDuration
+- wifiPaymentIsGift
+- wifiPaymentRecipientUsername
+```
+
+---
+
+## 🔐 Session Status Endpoints
+
+### 1. Get Session Status
+- **Path**: `GET /sessions/status`
+- **Auth**: Required (Bearer JWT)
+- **Description**: Get current session details and expiry info
+
+```json
+{
+  "isActive": true,
+  "remainingTime": 82800000,
+  "remainingHours": 23.0,
+  "sessionExpiry": "2026-04-02T18:30:00Z",
+  "activeSessions": 1,
+  "currentSession": {
+    "startedAt": "2026-04-01T18:30:00Z",
+    "router": "Home",
+    "planDuration": 24
+  }
+}
+```
+
+---
+
+## 📝 Activity Endpoints
+
+### 1. Get Activity Log
+- **Path**: `GET /activities`
+- **Auth**: Required (Bearer JWT)
+- **Description**: Get user activity audit trail
+
+```json
+[
+  {
+    "id": "act_123",
+    "action": "payment_processed",
+    "category": "payment",
+    "description": "Gift: Reactivation: Payment of 1000 CFA processed successfully for 24h Plan (24h)",
+    "status": "success",
+    "timestamp": "2026-04-02T10:30:00Z",
+    "metadata": {
+      "planName": "24h Plan",
+      "amount": 1000,
+      "duration": 24,
+      "isGift": true,
+      "wasReactivation": true,
+      "recipientUsername": "Alice"
+    }
+  }
+]
+```
+
+---
+
+## Testing Steps
+
+1. **Start Backend Server**
+   ```bash
+   cd splendid-starlink
+   npm install
+   npm start:dev
+   ```
+
+2. **Check Swagger**
+   - Go to `http://localhost:3001/docs`
+   - All endpoints listed with examples
+
+3. **Test Payment Flow**
+   ```bash
+   # 1. Initiate payment
+   curl -X POST http://localhost:3001/payments/initiate \
+     -H "Content-Type: application/json" \
+     -d '{
+       "planId": "507f1f77bcf86cd799439011",
+       "phone": "237123456789",
+       "email": "test@example.com"
+     }'
+   
+   # Response contains: transId
+   
+   # 2. Check status
+   curl http://localhost:3001/payments/status/{transId}
+   ```
+
+4. **Test Gift Purchase**
+   ```bash
+   curl -X POST http://localhost:3001/payments/initiate \
+     -H "Content-Type: application/json" \
+     -d '{
+       "planId": "507f1f77bcf86cd799439011",
+       "phone": "237123456789",
+       "isGift": true,
+       "recipientUsername": "Alice",
+       "password": "AlicePass123"
+     }'
+   ```
+
+---
+
+## Notes
+- All endpoints protected with JWT authentication (except public endpoints)
+- Email validation prevents Fapshi rejections  
+- Reactivation is automatic when expired users purchase new bundles
+- Gift recipients can be new or existing (deactivated users reactivated)
+- Success page auto-redirects to login portal after 5 seconds
+- Gift and reactivation flags tracked in activity logs
+

@@ -1,10 +1,12 @@
-import { Controller, Request, Post, UseGuards, Body, Logger } from '@nestjs/common';
 import {
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-  ApiBody,
-} from '@nestjs/swagger';
+  Controller,
+  Request,
+  Post,
+  UseGuards,
+  Body,
+  Logger,
+} from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './local-auth.guard';
 import { LoginDto } from './dto/login.dto';
@@ -30,7 +32,8 @@ export class AuthController {
   @ApiBody({ type: LoginDto })
   @ApiResponse({
     status: 200,
-    description: 'Login successful, JWT token returned. For WiFi logins, also authenticates with MikroTik.',
+    description:
+      'Login successful, JWT token returned. For WiFi logins, also authenticates with MikroTik.',
     schema: {
       example: {
         success: true,
@@ -38,7 +41,10 @@ export class AuthController {
         data: {
           token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
           user: { id: '507f1f77bcf86cd799439011', username: 'john_doe' },
-          mikrotikAuth: { success: true, message: 'Authenticated with MikroTik' }
+          mikrotikAuth: {
+            success: true,
+            message: 'Authenticated with MikroTik',
+          },
         },
       },
     },
@@ -50,55 +56,77 @@ export class AuthController {
     this.logger.log(`🔑 ===== LOGIN ATTEMPT START =====`);
     this.logger.log(`🔑 Username: ${body.username}`);
     this.logger.log(`🔑 Request body:`, body);
-    this.logger.log(`🔑 User from LocalAuthGuard:`, req.user ? {
-      _id: req.user._id,
-      username: req.user.username,
-      isActive: req.user.isActive,
-      sessionExpiry: req.user.sessionExpiry
-    } : 'No user found');
-    
+    this.logger.log(
+      `🔑 User from LocalAuthGuard:`,
+      req.user
+        ? {
+            _id: req.user._id,
+            username: req.user.username,
+            isActive: req.user.isActive,
+            sessionExpiry: req.user.sessionExpiry,
+          }
+        : 'No user found',
+    );
+
     const user = req.user;
     const now = new Date();
-    const planExpired = !user.isActive || !user.sessionExpiry || now > user.sessionExpiry;
-    
+    const planExpired =
+      !user.isActive || !user.sessionExpiry || now > user.sessionExpiry;
+
     // Dashboard login is allowed even for expired users (they need access to renew)
     if (planExpired && !body.fromWifi) {
-      this.logger.warn(`⚠️ Expired user ${body.username} logging in to dashboard for renewal`);
+      this.logger.warn(
+        `⚠️ Expired user ${body.username} logging in to dashboard for renewal`,
+      );
     } else if (!planExpired) {
-      this.logger.log(`✅ User has active plan, remaining: ${user.sessionExpiry}`);
+      this.logger.log(
+        `✅ User has active plan, remaining: ${user.sessionExpiry}`,
+      );
     }
-    
+
     const result = await this.authService.login(req.user);
-    
+
     // Add plan status to response (frontend uses this for banner/UI)
     result.data.planStatus = {
       planExpired,
       isActive: user.isActive,
       sessionExpiry: user.sessionExpiry,
       remainingHours: user.sessionExpiry
-        ? Math.round((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60))
+        ? Math.round(
+            (user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60),
+          )
         : 0,
     };
 
     // If from WiFi with expired plan: do not activate MikroTik. This lets user access dashboard for renewal only.
     if (body.fromWifi && planExpired) {
-      this.logger.warn(`⚠️ Expired user ${body.username} attempted WiFi login, skipping MikroTik activation`);
+      this.logger.warn(
+        `⚠️ Expired user ${body.username} attempted WiFi login, skipping MikroTik activation`,
+      );
       result.data.mikrotikAuth = {
         success: false,
-        message: 'Your subscription has expired. No internet access until plan is renewed.',
+        message:
+          'Your subscription has expired. No internet access until plan is renewed.',
       };
     }
-    
+
     // If coming from WiFi and plan is ACTIVE, authenticate with MikroTik.
     if (body.fromWifi && !planExpired) {
       this.logger.log(`📡 ===== WIFI LOGIN PROCESS START =====`);
-      this.logger.log(`📡 WiFi login detected - authenticating with MikroTik for ${user.username}`);
+      this.logger.log(
+        `📡 WiFi login detected - authenticating with MikroTik for ${user.username}`,
+      );
       this.logger.log(`📡 User MAC: ${user.macAddress || 'Not stored'}`);
       this.logger.log(`📡 Request MAC: ${body.macAddress || 'Not provided'}`);
-      this.logger.log(`📡 Plan active: ${!planExpired}, expires: ${user.sessionExpiry}`);
+      this.logger.log(
+        `📡 Plan active: ${!planExpired}, expires: ${user.sessionExpiry}`,
+      );
 
       // For returning users: if no MAC stored but user has active plan, grant access
-      const shouldAuthenticate = user.macAddress || body.macAddress || (!user.macAddress && !planExpired);
+      const shouldAuthenticate =
+        user.macAddress ||
+        body.macAddress ||
+        (!user.macAddress && !planExpired);
       this.logger.log(`📡 Should authenticate: ${shouldAuthenticate}`);
 
       if (shouldAuthenticate) {
@@ -107,8 +135,16 @@ export class AuthController {
           if (body.macAddress) {
             // FIX: Decode URL-encoded MAC address (02%3A38... → 02:38:9C...)
             const decodedMac = decodeURIComponent(body.macAddress);
-            this.logger.log(`📌 Binding MAC ${body.macAddress} → Decoded: ${decodedMac} for WiFi access`);
-            await this.mikrotikService.bindMacOnAvailableRouter(decodedMac, Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60)));
+            this.logger.log(
+              `📌 Binding MAC ${body.macAddress} → Decoded: ${decodedMac} for WiFi access`,
+            );
+            await this.mikrotikService.bindMacOnAvailableRouter(
+              decodedMac,
+              Math.ceil(
+                (user.sessionExpiry.getTime() - now.getTime()) /
+                  (1000 * 60 * 60),
+              ),
+            );
             this.logger.log(`✅ MAC binding completed`);
           }
 
@@ -116,30 +152,53 @@ export class AuthController {
           this.logger.log(`🔄 Activating hotspot user...`);
           await this.mikrotikService.activateUser(
             user.username,
-            Math.ceil((user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60))
+            Math.ceil(
+              (user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60),
+            ),
           );
-          this.logger.log(`✅ MikroTik authentication successful for ${user.username}`);
-          result.data.mikrotikAuth = { success: true, message: 'Authenticated with MikroTik' };
+          this.logger.log(
+            `✅ MikroTik authentication successful for ${user.username}`,
+          );
+          result.data.mikrotikAuth = {
+            success: true,
+            message: 'Authenticated with MikroTik',
+          };
         } catch (mikrotikError: any) {
-          this.logger.error(`❌ MikroTik authentication FAILED: ${mikrotikError.message}`);
+          this.logger.error(
+            `❌ MikroTik authentication FAILED: ${mikrotikError.message}`,
+          );
           this.logger.error(`❌ Error details:`, mikrotikError);
-          result.data.mikrotikAuth = { success: false, message: mikrotikError.message };
+          result.data.mikrotikAuth = {
+            success: false,
+            message: mikrotikError.message,
+          };
         }
       } else {
-        this.logger.log(`ℹ️ Skipping MikroTik auth - no MAC and plan expired for ${user.username}`);
-        result.data.mikrotikAuth = { success: false, message: 'No active plan for WiFi access' };
+        this.logger.log(
+          `ℹ️ Skipping MikroTik auth - no MAC and plan expired for ${user.username}`,
+        );
+        result.data.mikrotikAuth = {
+          success: false,
+          message: 'No active plan for WiFi access',
+        };
       }
       this.logger.log(`📡 ===== WIFI LOGIN PROCESS END =====`);
     }
     this.logger.log(`🔄 Checking for active session to reconnect...`);
-    const reconnectionStatus = await this.paymentsService.reconnectUserIfNeeded(req.user._id);
+    const reconnectionStatus = await this.paymentsService.reconnectUserIfNeeded(
+      req.user._id,
+    );
     this.logger.log(`🔄 Reconnection status:`, reconnectionStatus);
     if (reconnectionStatus?.reconnected) {
-      this.logger.log(`✅ User reconnected to WiFi: ${reconnectionStatus?.username} (${reconnectionStatus?.remainingHours}h remaining)`);
+      this.logger.log(
+        `✅ User reconnected to WiFi: ${reconnectionStatus?.username} (${reconnectionStatus?.remainingHours}h remaining)`,
+      );
     } else {
-      this.logger.log(`ℹ️ No active session to reconnect: ${reconnectionStatus?.reason}`);
+      this.logger.log(
+        `ℹ️ No active session to reconnect: ${reconnectionStatus?.reason}`,
+      );
     }
-    
+
     this.logger.log(`✅ ===== LOGIN SUCCESSFUL =====`);
     this.logger.log(`✅ User: ${body.username}`);
     this.logger.log(`✅ Response data:`, result.data);
@@ -170,26 +229,28 @@ export class AuthController {
   async register(@Body() body: SignupDto) {
     this.logger.log(`📝 Registration attempt for user: ${body.username}`);
     if (body.macAddress) {
-      this.logger.log(`   📌 WiFi Session: MAC=${body.macAddress}, Router=${body.routerIdentity || 'unknown'}`);
+      this.logger.log(
+        `   📌 WiFi Session: MAC=${body.macAddress}, Router=${body.routerIdentity || 'unknown'}`,
+      );
     }
-    
+
     try {
       const user = await this.usersService.create(
-        body.username, 
+        body.username,
         body.password,
         body.macAddress,
-        body.routerIdentity
+        body.routerIdentity,
       );
       this.logger.log(
         `✅ User registered successfully: ${body.username} (ID: ${user._id})`,
       );
-      
+
       // Auto-login after registration to get token
       const loginResult = await this.authService.login(user);
       this.logger.log(
         `✅ User auto-logged in after registration: ${body.username}`,
       );
-      
+
       // Return the login result which includes the token
       return loginResult;
     } catch (error: any) {
@@ -226,34 +287,42 @@ export class AuthController {
       const user = await this.usersService.findByMacWithActiveSession(body.mac);
 
       if (user) {
-        this.logger.log(`✅ Active user found with MAC ${body.mac}: ${user.username}`);
+        this.logger.log(
+          `✅ Active user found with MAC ${body.mac}: ${user.username}`,
+        );
         return {
           exists: true,
           username: user.username,
           sessionExpiry: user.sessionExpiry,
           remainingHours: user.sessionExpiry
             ? Math.round(
-                (user.sessionExpiry.getTime() - new Date().getTime()) / (1000 * 60 * 60),
+                (user.sessionExpiry.getTime() - new Date().getTime()) /
+                  (1000 * 60 * 60),
               )
             : 0,
           planStatus: 'active',
         };
       }
-      
+
       // If no active user, check if there's a user with expired plan
-      const expiredUser = await this.usersService.findByMacIncludingExpired(body.mac);
+      const expiredUser = await this.usersService.findByMacIncludingExpired(
+        body.mac,
+      );
       if (expiredUser) {
-        this.logger.log(`⚠️ User with expired plan found with MAC ${body.mac}: ${expiredUser.username}`);
+        this.logger.log(
+          `⚠️ User with expired plan found with MAC ${body.mac}: ${expiredUser.username}`,
+        );
         return {
           exists: true,
           username: expiredUser.username,
           sessionExpiry: expiredUser.sessionExpiry,
           remainingHours: 0,
           planStatus: 'expired',
-          message: 'Your subscription has expired. Please login to renew your plan.',
+          message:
+            'Your subscription has expired. Please login to renew your plan.',
         };
       }
-      
+
       // No user found with this MAC
       this.logger.log(`ℹ️ No user found with MAC: ${body.mac}`);
       return {
@@ -277,7 +346,7 @@ export class AuthController {
         message: 'Silent login successful',
         data: {
           activeRouter: 'Home',
-          note: 'User is now actively connected to the hotspot'
+          note: 'User is now actively connected to the hotspot',
         },
       },
     },

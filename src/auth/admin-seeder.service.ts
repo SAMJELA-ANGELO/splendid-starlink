@@ -17,6 +17,8 @@ export class AdminSeederService implements OnModuleInit {
     const adminPassword = 'To2dayPips';
     await this.usersService.create('splendid', adminPassword);
     this.logger.log('Admin user created: splendid');
-    this.logger.log('Use username "splendid" + password "To2dayPips" to login and access plans endpoints');
+    this.logger.log(
+      'Use username "splendid" + password "To2dayPips" to login and access plans endpoints',
+    );
   }
 }

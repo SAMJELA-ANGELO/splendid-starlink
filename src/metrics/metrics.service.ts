@@ -3,7 +3,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from '../schemas/user.schema';
 import { Session, SessionDocument } from '../schemas/session.schema';
-import { MetricsDto, ConnectionMetricsResponseDto, HistoricalMetricsDto } from './dto';
+import {
+  MetricsDto,
+  ConnectionMetricsResponseDto,
+  HistoricalMetricsDto,
+} from './dto';
 import axios from 'axios';
 
 @Injectable()
@@ -19,7 +23,9 @@ export class MetricsService {
    * Get current connection metrics for authenticated user
    * This returns real data from the active session/router
    */
-  async getCurrentMetrics(userId: string): Promise<ConnectionMetricsResponseDto> {
+  async getCurrentMetrics(
+    userId: string,
+  ): Promise<ConnectionMetricsResponseDto> {
     this.logger.log(`📊 Fetching current metrics for user: ${userId}`);
 
     try {
@@ -45,7 +51,10 @@ export class MetricsService {
       }
 
       // Get real metrics from MikroTik via the local Router API
-      const realMetrics = await this.fetchMetricsFromRouter(user.username, activeSession.id);
+      const realMetrics = await this.fetchMetricsFromRouter(
+        user.username,
+        activeSession.id,
+      );
 
       const response: ConnectionMetricsResponseDto = {
         isConnected: activeSession.isActive,
@@ -61,7 +70,9 @@ export class MetricsService {
       );
       return response;
     } catch (error) {
-      this.logger.warn(`⚠️ Failed to fetch real metrics for user: ${userId}: ${error.message}, returning mock data`);
+      this.logger.warn(
+        `⚠️ Failed to fetch real metrics for user: ${userId}: ${error.message}, returning mock data`,
+      );
       // Return mock data if router is unreachable
       return {
         isConnected: false,
@@ -75,8 +86,13 @@ export class MetricsService {
   /**
    * Get historical metrics for the last 24 hours
    */
-  async getHistoricalMetrics(userId: string, hours: number = 24): Promise<HistoricalMetricsDto> {
-    this.logger.log(`📈 Fetching historical metrics for user: ${userId}, last ${hours} hours`);
+  async getHistoricalMetrics(
+    userId: string,
+    hours: number = 24,
+  ): Promise<HistoricalMetricsDto> {
+    this.logger.log(
+      `📈 Fetching historical metrics for user: ${userId}, last ${hours} hours`,
+    );
 
     try {
       const startTime = new Date(Date.now() - hours * 60 * 60 * 1000);
@@ -92,15 +108,24 @@ export class MetricsService {
 
       // Generate mock metrics data points for the period
       // In production, this would fetch from a metrics collection or external service
-      const measurements: MetricsDto[] = this.generateHistoricalMeasurements(startTime, new Date());
+      const measurements: MetricsDto[] = this.generateHistoricalMeasurements(
+        startTime,
+        new Date(),
+      );
 
       // Calculate averages
       const avgDownloadSpeed =
-        measurements.reduce((sum, m) => sum + m.downloadSpeed, 0) / (measurements.length || 1);
-      const avgUploadSpeed = measurements.reduce((sum, m) => sum + m.uploadSpeed, 0) / (measurements.length || 1);
-      const avgLatency = measurements.reduce((sum, m) => sum + m.latency, 0) / (measurements.length || 1);
+        measurements.reduce((sum, m) => sum + m.downloadSpeed, 0) /
+        (measurements.length || 1);
+      const avgUploadSpeed =
+        measurements.reduce((sum, m) => sum + m.uploadSpeed, 0) /
+        (measurements.length || 1);
+      const avgLatency =
+        measurements.reduce((sum, m) => sum + m.latency, 0) /
+        (measurements.length || 1);
       const avgSignalStrength =
-        measurements.reduce((sum, m) => sum + m.signalStrength, 0) / (measurements.length || 1);
+        measurements.reduce((sum, m) => sum + m.signalStrength, 0) /
+        (measurements.length || 1);
 
       const response: HistoricalMetricsDto = {
         measurements,
@@ -117,7 +142,9 @@ export class MetricsService {
       );
       return response;
     } catch (error) {
-      this.logger.error(`❌ Failed to fetch historical metrics for user: ${userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to fetch historical metrics for user: ${userId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -125,7 +152,10 @@ export class MetricsService {
   /**
    * Fetch metrics from the actual router (MikroTik via local API)
    */
-  private async fetchMetricsFromRouter(username: string, sessionId: string): Promise<MetricsDto> {
+  private async fetchMetricsFromRouter(
+    username: string,
+    sessionId: string,
+  ): Promise<MetricsDto> {
     try {
       // Call local Router API endpoint that interfaces with MikroTik
       // This is a placeholder - in production, you'd call your MikroTik service
@@ -192,7 +222,10 @@ export class MetricsService {
   /**
    * Generate historical measurement data points
    */
-  private generateHistoricalMeasurements(startTime: Date, endTime: Date): MetricsDto[] {
+  private generateHistoricalMeasurements(
+    startTime: Date,
+    endTime: Date,
+  ): MetricsDto[] {
     const measurements: MetricsDto[] = [];
     const intervalMinutes = 30; // Data point every 30 minutes
     let currentTime = new Date(startTime);
@@ -202,7 +235,9 @@ export class MetricsService {
         ...this.generateRealisticMetrics(),
         timestamp: new Date(currentTime),
       });
-      currentTime = new Date(currentTime.getTime() + intervalMinutes * 60 * 1000);
+      currentTime = new Date(
+        currentTime.getTime() + intervalMinutes * 60 * 1000,
+      );
     }
 
     return measurements;

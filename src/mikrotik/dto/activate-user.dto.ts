@@ -21,7 +21,8 @@ export class ActivateUserDto {
   durationHours: number;
 
   @ApiProperty({
-    description: 'Optional password for the user (uses username if not provided)',
+    description:
+      'Optional password for the user (uses username if not provided)',
     example: 'password123',
     required: false,
   })

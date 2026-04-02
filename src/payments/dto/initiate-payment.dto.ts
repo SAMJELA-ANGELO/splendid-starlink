@@ -11,7 +11,9 @@ export class InitiatePaymentDto {
     description: 'User phone number (required for direct payment)',
   })
   @IsString()
-  @Matches(/^6[\d]{8}$/, { message: 'Phone must be valid Cameroon format: 6XXXXXXXX' })
+  @Matches(/^6[\d]{8}$/, {
+    message: 'Phone must be valid Cameroon format: 6XXXXXXXX',
+  })
   phone: string;
 
   @ApiProperty({
@@ -78,7 +80,8 @@ export class InitiatePaymentDto {
 
   @ApiProperty({
     example: '192.168.88.20',
-    description: 'User local IP address on WiFi network (optional, for silent login)',
+    description:
+      'User local IP address on WiFi network (optional, for silent login)',
     required: false,
   })
   @IsOptional()
@@ -87,7 +90,8 @@ export class InitiatePaymentDto {
 
   @ApiProperty({
     example: 'myPassword123',
-    description: 'User plain password from localStorage (optional, for silent login)',
+    description:
+      'User plain password from localStorage (optional, for silent login)',
     required: false,
   })
   @IsOptional()

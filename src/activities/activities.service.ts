@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Activity, ActivityDocument } from '../schemas/activity.schema';
-import { ActivityDto, RecentActivityResponseDto, ActivityStatsDto } from './dto/activity.dto';
+import {
+  ActivityDto,
+  RecentActivityResponseDto,
+  ActivityStatsDto,
+} from './dto/activity.dto';
 import { Plan, PlanDocument } from '../schemas/plan.schema';
 
 @Injectable()
@@ -58,7 +62,9 @@ export class ActivitiesService {
     page: number = 1,
     pageSize: number = 10,
   ): Promise<RecentActivityResponseDto> {
-    this.logger.log(`📋 Fetching recent activities for user: ${userId}, page: ${page}`);
+    this.logger.log(
+      `📋 Fetching recent activities for user: ${userId}, page: ${page}`,
+    );
 
     try {
       const skip = (page - 1) * pageSize;
@@ -111,7 +117,9 @@ export class ActivitiesService {
         totalPages,
       };
     } catch (error) {
-      this.logger.error(`❌ Failed to fetch recent activities for user: ${userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to fetch recent activities for user: ${userId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -125,7 +133,14 @@ export class ActivitiesService {
     try {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const monthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+      );
 
       // Get activities for this month
       const monthActivities = await this.activityModel
@@ -136,14 +151,17 @@ export class ActivitiesService {
         .lean();
 
       // Get successful and failed counts
-      const successfulActionsThisMonth = monthActivities.filter((a: any) => a.status === 'success')
-        .length;
-      const failedActionsThisMonth = monthActivities.filter((a: any) => a.status === 'failed')
-        .length;
+      const successfulActionsThisMonth = monthActivities.filter(
+        (a: any) => a.status === 'success',
+      ).length;
+      const failedActionsThisMonth = monthActivities.filter(
+        (a: any) => a.status === 'failed',
+      ).length;
 
       // Get payment count
-      const paymentsThisMonth = monthActivities.filter((a: any) => a.category === 'payment')
-        .length;
+      const paymentsThisMonth = monthActivities.filter(
+        (a: any) => a.category === 'payment',
+      ).length;
 
       // Calculate total hours from session-related activities
       let hoursServiceActiveThisMonth = 0;
@@ -167,7 +185,9 @@ export class ActivitiesService {
       );
       return stats;
     } catch (error) {
-      this.logger.error(`❌ Failed to fetch activity stats for user: ${userId}: ${error.message}`);
+      this.logger.error(
+        `❌ Failed to fetch activity stats for user: ${userId}: ${error.message}`,
+      );
       throw error;
     }
   }
@@ -186,7 +206,10 @@ export class ActivitiesService {
     try {
       const skip = (page - 1) * pageSize;
 
-      const total = await this.activityModel.countDocuments({ userId, category });
+      const total = await this.activityModel.countDocuments({
+        userId,
+        category,
+      });
       const activities = await this.activityModel
         .find({ userId, category })
         .sort({ timestamp: -1 })
