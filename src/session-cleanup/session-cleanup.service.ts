@@ -20,10 +20,21 @@ export class SessionCleanupService {
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSessionCleanup() {
-    try {
-      const startTime = Date.now();
-      this.logger.log(`⏰ Starting session cleanup process...`);
+    const startTime = Date.now();
+    const result = {
+      checkedAt: new Date(startTime).toISOString(),
+      expiredCount: 0,
+      disabledCount: 0,
+      disabledUsers: [] as string[],
+      failedUsers: [] as { username: string; reason: string }[],
+      elapsedMs: 0,
+    };
 
+    this.logger.log(
+      `⏰ Starting session cleanup process at ${result.checkedAt}`,
+    );
+
+    try {
       const now = new Date();
 
       // Find users who are active but their session has expired
@@ -35,28 +46,91 @@ export class SessionCleanupService {
         })
         .exec();
 
+      result.expiredCount = expiredUsers.length;
+
       if (expiredUsers.length === 0) {
-        const elapsed = Date.now() - startTime;
-        this.logger.log(`✅ No expired sessions found (${elapsed}ms)`);
-        return;
+        result.elapsedMs = Date.now() - startTime;
+        this.logger.log(`✅ No expired sessions found (${result.elapsedMs}ms)`);
+        return result;
       }
 
       this.logger.log(
-        `  ✅ Found ${expiredUsers.length} expired user(s) to disable`,
+        `  ✅ Found ${expiredUsers.length} expired user(s) to disable: ${expiredUsers
+          .map((u) => u.username)
+          .join(', ')}`,
       );
-      this.logger.log(`  2️⃣ Processing disabled users...`);
+      this.logger.log(`  2️⃣ Processing expired users...`);
 
       for (const user of expiredUsers) {
-        await this.disableExpiredUser(user);
+        const deactivateResult = await this.disableExpiredUser(user);
+        if (deactivateResult.success) {
+          result.disabledCount += 1;
+          result.disabledUsers.push(user.username);
+        } else {
+          result.failedUsers.push({
+            username: user.username,
+            reason: deactivateResult.reason || 'unknown error',
+          });
+        }
       }
 
-      const elapsed = Date.now() - startTime;
+      result.elapsedMs = Date.now() - startTime;
       this.logger.log(
-        `✅ Session cleanup complete - disabled ${expiredUsers.length} user(s) in ${elapsed}ms`,
+        `✅ Session cleanup complete - processed ${result.expiredCount} expired user(s), disabled ${result.disabledCount}, failed ${result.failedUsers.length} in ${result.elapsedMs}ms`,
       );
+      if (result.failedUsers.length > 0) {
+        this.logger.warn(
+          `⚠️ Failed cleanup for: ${result.failedUsers
+            .map((f) => `${f.username} (${f.reason})`)
+            .join(', ')}`,
+        );
+      }
+
+      return result;
     } catch (error: any) {
+      result.elapsedMs = Date.now() - startTime;
       this.logger.error(`❌ Error during session cleanup: ${error.message}`);
+      result.failedUsers.push({ username: 'cleanup-run', reason: error.message });
+      return result;
     }
+  }
+
+  async getExpiredSessions() {
+    const now = new Date();
+    this.logger.log(`🔎 Checking current expired sessions at ${now.toISOString()}`);
+
+    const expiredUsers = await this.userModel
+      .find(
+        {
+          isActive: true,
+          sessionExpiry: { $lt: now },
+        },
+        {
+          username: 1,
+          sessionExpiry: 1,
+          macAddress: 1,
+          routerIdentity: 1,
+        },
+      )
+      .lean();
+
+    const result = expiredUsers.map((user) => ({
+      username: user.username,
+      sessionExpiry: user.sessionExpiry,
+      macAddress: user.macAddress || null,
+      routerIdentity: user.routerIdentity || null,
+    }));
+
+    this.logger.log(
+      `✅ Found ${result.length} expired session(s): ${result
+        .map((u) => u.username)
+        .join(', ') || 'none'}`,
+    );
+    return {
+      checkedAt: now.toISOString(),
+      expiredCount: result.length,
+      expiredUsers: result,
+    };
   }
 
   /**
@@ -111,10 +185,12 @@ export class SessionCleanupService {
       });
 
       this.logger.log(`  ✅ User deactivated: ${user.username}`);
+      return { success: true };
     } catch (error: any) {
       this.logger.error(
         `  ❌ Error deactivating user ${user.username}: ${error.message}`,
       );
+      return { success: false, reason: error.message };
     }
   }
 
@@ -123,6 +199,6 @@ export class SessionCleanupService {
    */
   async manualCleanup() {
     this.logger.log(`🔧 Running manual session cleanup...`);
-    await this.handleSessionCleanup();
+    return this.handleSessionCleanup();
   }
 }

@@ -629,9 +629,32 @@ export class PaymentsService {
         `  ✅ ${isGift ? 'Recipient' : 'User'} ${needsReactivation ? 'reactivated' : 'activated'} in MongoDB${isGift ? '' : ' with device info'}`,
       );
 
-      // Activate on MikroTik - FIRST: Create hotspot user so device can connect normally
+      // Activate on MikroTik - FIRST: Check if user exists, create if not, then activate
       this.logger.log(
-        `  5️⃣ ${needsReactivation ? 'Reactivating' : 'Creating'} hotspot user on MikroTik router`,
+        `  5️⃣ Checking MikroTik user account for: ${username}`,
+      );
+
+      // Check if user exists on MikroTik
+      this.logger.log(`  🔍 Checking if user ${username} exists on MikroTik...`);
+      const userExistsOnMikrotik = await this.mikrotikService.userExists(username);
+
+      if (!userExistsOnMikrotik) {
+        this.logger.log(`  ➕ User ${username} does not exist on MikroTik - creating user account first...`);
+        try {
+          // Create the user account on MikroTik first
+          await this.mikrotikService.createUser(username, payment.password || username);
+          this.logger.log(`  ✅ User ${username} created successfully on MikroTik`);
+        } catch (createError: any) {
+          this.logger.error(`  ❌ Failed to create user ${username} on MikroTik: ${createError.message}`);
+          throw new Error(`Failed to create user account on MikroTik: ${createError.message}`);
+        }
+      } else {
+        this.logger.log(`  ✅ User ${username} already exists on MikroTik`);
+      }
+
+      // Now activate/create hotspot user (this will handle the duration and router assignment)
+      this.logger.log(
+        `  6️⃣ ${needsReactivation ? 'Reactivating' : 'Creating'} hotspot user on MikroTik router`,
       );
       try {
         this.logger.log(
@@ -648,7 +671,7 @@ export class PaymentsService {
         (payment as any).activeRouter = createUserResult.activeRouter;
 
         // Check if we can attempt silent login after device connects
-        this.logger.log(`  📊 CHECKING SILENT LOGIN CAPABILITIES:`);
+        this.logger.log(`  7️⃣ CHECKING SILENT LOGIN CAPABILITIES:`);
         this.logger.log(`     - isGift: ${isGift}`);
         this.logger.log(`     - payment.macAddress: ${payment.macAddress}`);
         this.logger.log(`     - payment.userIp: ${payment.userIp}`);

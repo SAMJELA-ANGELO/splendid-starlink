@@ -164,6 +164,30 @@ export class MikrotikService implements OnModuleInit {
     }
   }
 
+  async userExists(username: string): Promise<boolean> {
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/users/${encodeURIComponent(
+      username,
+    )}`;
+    this.logger.log(`🔍 Checking if MikroTik user exists: ${username}`);
+    try {
+      this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
+      const resp = await axios.get(url);
+      const userExists = resp.data && resp.data.user;
+      this.logger.log(`✅ User ${username} ${userExists ? 'exists' : 'does not exist'} on MikroTik`);
+      return !!userExists;
+    } catch (err: any) {
+      // If user is not found (404), return false
+      if (err.response && err.response.status === 404) {
+        this.logger.log(`ℹ️ User ${username} does not exist on MikroTik (404 response)`);
+        return false;
+      }
+      this.logger.error(
+        `❌ Failed to check if user ${username} exists: ${err?.response?.data?.error || err.message}`,
+      );
+      throw err;
+    }
+  }
+
   async getActiveUsers() {
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/active-users`;
     this.logger.log(`🟢 Getting active MikroTik users`);

@@ -1,10 +1,10 @@
-import { IsNotEmpty, IsString, IsNumber, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsString, IsNumber, Min } from 'class-validator';
 
 export class SilentLoginDto {
   @ApiProperty({
     description: 'Username for hotspot login',
-    example: 'john_doe',
+    example: 'user123',
   })
   @IsNotEmpty()
   @IsString()
@@ -19,15 +19,15 @@ export class SilentLoginDto {
   password: string;
 
   @ApiProperty({
-    description: 'MAC address of the client device',
-    example: 'AA:BB:CC:DD:EE:FF',
+    description: 'MAC address of the device',
+    example: '02:38:9A:45:67:89',
   })
   @IsNotEmpty()
   @IsString()
   macAddress: string;
 
   @ApiProperty({
-    description: 'IP address of the client device',
+    description: 'IP address of the device',
     example: '192.168.1.100',
   })
   @IsNotEmpty()
@@ -35,7 +35,7 @@ export class SilentLoginDto {
   ipAddress: string;
 
   @ApiProperty({
-    description: 'Duration of the session in hours',
+    description: 'Duration in hours for the session',
     example: 24,
     minimum: 1,
   })
