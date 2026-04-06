@@ -12,7 +12,7 @@ export class InitiatePaymentDto {
   })
   @IsString()
   @Matches(/^6[\d]{8}$/, {
-    message: 'Phone must be valid Cameroon format: 6XXXXXXXX',
+    message: 'Phone number must be a valid Cameroon mobile number starting with 6 (e.g., 691234567)',
   })
   phone: string;
 

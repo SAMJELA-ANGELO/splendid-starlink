@@ -163,7 +163,51 @@ export class PaymentsService {
       this.logger.error(
         `❌ Payment initiation failed for user ${userId}: ${error.message}`,
       );
-      throw error;
+
+      // Convert Fapshi errors to user-friendly messages
+      let userFriendlyMessage = 'Payment initiation failed. Please try again.';
+
+      if (error.response) {
+        // Fapshi returned an error response
+        const fapshiError = error.response.data;
+        this.logger.error(`❌ Fapshi error response:`, fapshiError);
+
+        if (fapshiError.message) {
+          const errorMsg = fapshiError.message.toLowerCase();
+
+          if (errorMsg.includes('invalid phone') || errorMsg.includes('phone number')) {
+            userFriendlyMessage = 'Invalid phone number. Please check the format and try again.';
+          } else if (errorMsg.includes('insufficient balance') || errorMsg.includes('balance')) {
+            userFriendlyMessage = 'Insufficient account balance. Please top up and try again.';
+          } else if (errorMsg.includes('unauthorized') || errorMsg.includes('authentication')) {
+            userFriendlyMessage = 'Payment service temporarily unavailable. Please try again later.';
+          } else if (errorMsg.includes('timeout') || errorMsg.includes('network')) {
+            userFriendlyMessage = 'Payment request timed out. Please check your connection and try again.';
+          } else if (errorMsg.includes('amount') && errorMsg.includes('invalid')) {
+            userFriendlyMessage = 'Invalid payment amount. Please select a valid plan.';
+          } else {
+            // Use Fapshi's message if it's user-friendly, otherwise use generic
+            userFriendlyMessage = fapshiError.message.length < 100 ? fapshiError.message : userFriendlyMessage;
+          }
+        } else if (fapshiError.error) {
+          // Some Fapshi errors have an 'error' field
+          const errorMsg = fapshiError.error.toLowerCase();
+          if (errorMsg.includes('phone')) {
+            userFriendlyMessage = 'Invalid phone number format. Please use a valid Cameroon mobile number.';
+          } else if (errorMsg.includes('amount')) {
+            userFriendlyMessage = 'Invalid payment amount. Please select a different plan.';
+          }
+        }
+      } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        userFriendlyMessage = 'Payment service is currently unavailable. Please try again in a few minutes.';
+      } else if (error.code === 'ETIMEDOUT') {
+        userFriendlyMessage = 'Payment request timed out. Please check your internet connection and try again.';
+      }
+
+      // Create a new error with user-friendly message
+      const userError = new Error(userFriendlyMessage);
+      userError.name = 'PaymentError';
+      throw userError;
     }
   }
 
@@ -231,7 +275,34 @@ export class PaymentsService {
       this.logger.error(
         `❌ Payment status check failed for ${transactionId}: ${error.message}`,
       );
-      throw error;
+
+      // Convert Fapshi errors to user-friendly messages for status checks
+      let userFriendlyMessage = 'Unable to check payment status. Please try again.';
+
+      if (error.response) {
+        const fapshiError = error.response.data;
+        this.logger.error(`❌ Fapshi status check error:`, fapshiError);
+
+        if (fapshiError.message) {
+          const errorMsg = fapshiError.message.toLowerCase();
+
+          if (errorMsg.includes('not found') || errorMsg.includes('transaction')) {
+            userFriendlyMessage = 'Payment transaction not found. It may have expired.';
+          } else if (errorMsg.includes('timeout') || errorMsg.includes('network')) {
+            userFriendlyMessage = 'Payment status check timed out. Please check your connection.';
+          } else {
+            userFriendlyMessage = fapshiError.message.length < 100 ? fapshiError.message : userFriendlyMessage;
+          }
+        }
+      } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        userFriendlyMessage = 'Payment service is currently unavailable. Please try again later.';
+      } else if (error.code === 'ETIMEDOUT') {
+        userFriendlyMessage = 'Payment status check timed out. Please try again.';
+      }
+
+      const userError = new Error(userFriendlyMessage);
+      userError.name = 'PaymentStatusError';
+      throw userError;
     }
   }
 
@@ -355,10 +426,31 @@ export class PaymentsService {
           };
         case 'FAILED':
           this.logger.warn(`  ❌ Payment FAILED: ${data.transId}`);
+
+          // Provide more specific failure reasons based on Fapshi response
+          let failureMessage = 'Payment was declined';
+          if (statusResponse.data.message) {
+            const fapshiMsg = statusResponse.data.message.toLowerCase();
+            if (fapshiMsg.includes('insufficient') || fapshiMsg.includes('balance')) {
+              failureMessage = 'Payment failed: Insufficient account balance';
+            } else if (fapshiMsg.includes('cancelled') || fapshiMsg.includes('declined')) {
+              failureMessage = 'Payment was cancelled or declined';
+            } else if (fapshiMsg.includes('timeout') || fapshiMsg.includes('expired')) {
+              failureMessage = 'Payment timed out or expired';
+            } else if (fapshiMsg.includes('invalid')) {
+              failureMessage = 'Payment failed: Invalid transaction details';
+            } else {
+              // Use Fapshi's message if it's concise and user-friendly
+              failureMessage = statusResponse.data.message.length < 100
+                ? `Payment failed: ${statusResponse.data.message}`
+                : failureMessage;
+            }
+          }
+
           return {
             success: false,
             status: 'FAILED',
-            message: 'Payment was declined',
+            message: failureMessage,
           };
         case 'EXPIRED':
           this.logger.warn(`  ⏱️ Payment EXPIRED: ${data.transId}`);
@@ -379,7 +471,36 @@ export class PaymentsService {
       }
     } catch (error: any) {
       this.logger.error(`❌ Webhook notification error: ${error.message}`);
-      return { success: false, error: error.message };
+
+      // Convert webhook errors to user-friendly messages
+      let errorMessage = 'Payment processing failed. Please contact support if the issue persists.';
+
+      if (error.response) {
+        const fapshiError = error.response.data;
+        this.logger.error(`❌ Fapshi webhook error response:`, fapshiError);
+
+        if (fapshiError.message) {
+          const errorMsg = fapshiError.message.toLowerCase();
+
+          if (errorMsg.includes('not found') || errorMsg.includes('transaction')) {
+            errorMessage = 'Payment transaction not found. Please try initiating a new payment.';
+          } else if (errorMsg.includes('timeout') || errorMsg.includes('network')) {
+            errorMessage = 'Payment service temporarily unavailable. Your payment may still be processing.';
+          } else {
+            errorMessage = fapshiError.message.length < 100 ? fapshiError.message : errorMessage;
+          }
+        }
+      } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        errorMessage = 'Payment service is currently unavailable. Please try again later.';
+      } else if (error.code === 'ETIMEDOUT') {
+        errorMessage = 'Payment processing timed out. Please check your payment status manually.';
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        technical: error.message // Keep technical details for logging
+      };
     }
   }
 
@@ -553,9 +674,33 @@ export class PaymentsService {
         this.logger.error(
           `  ❌ MikroTik user creation failed: ${activateError.message}`,
         );
-        throw new Error(
-          `Failed to create user on any router: ${activateError.message}`,
-        );
+
+        // Convert MikroTik errors to user-friendly messages
+        let userFriendlyMessage = 'Internet access setup failed. Please contact support.';
+
+        if (activateError.message) {
+          const errorMsg = activateError.message.toLowerCase();
+
+          if (errorMsg.includes('connection') || errorMsg.includes('connect')) {
+            userFriendlyMessage = 'Unable to connect to internet router. Please try again in a few minutes.';
+          } else if (errorMsg.includes('timeout') || errorMsg.includes('network')) {
+            userFriendlyMessage = 'Router connection timed out. Your payment was successful - please try logging in manually.';
+          } else if (errorMsg.includes('unreachable') || errorMsg.includes('refused')) {
+            userFriendlyMessage = 'Internet service temporarily unavailable. Your payment was successful - access will be available shortly.';
+          } else if (errorMsg.includes('all routers failed') || errorMsg.includes('available router')) {
+            userFriendlyMessage = 'All internet routers are currently offline. Your payment was successful - please try again later.';
+          } else {
+            // Use the original message if it's concise and technical details are stripped
+            userFriendlyMessage = activateError.message.length < 150
+              ? `Internet setup failed: ${activateError.message}`
+              : userFriendlyMessage;
+          }
+        }
+
+        // Create a new error with user-friendly message but keep technical details for logging
+        const userError = new Error(userFriendlyMessage);
+        userError.name = 'MikroTikActivationError';
+        throw userError;
       }
 
       // Save activeRouter field for audit trail
