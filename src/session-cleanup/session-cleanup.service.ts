@@ -62,7 +62,7 @@ export class SessionCleanupService {
       this.logger.log(`  2️⃣ Processing expired users...`);
 
       for (const user of expiredUsers) {
-        const deactivateResult = await this.disableExpiredUser(user);
+        const deactivateResult = await this.deactivateExpiredUser(user);
         if (deactivateResult.success) {
           result.disabledCount += 1;
           result.disabledUsers.push(user.username);
@@ -134,9 +134,9 @@ export class SessionCleanupService {
   }
 
   /**
-   * Disable a single expired user
+   * Deactivate a single expired user
    */
-  private async disableExpiredUser(user: UserDocument) {
+  private async deactivateExpiredUser(user: UserDocument) {
     try {
       this.logger.log(
         `  ⏱️ Disabling expired session for: ${user.username} (expired: ${user.sessionExpiry})`,
@@ -162,16 +162,16 @@ export class SessionCleanupService {
         }
       }
 
-      // 2. Disable user on MikroTik using FAILOVER (try both routers)
+      // 2. Deactivate user on MikroTik using FAILOVER (try both routers)
       try {
         this.logger.log(
-          `    2️⃣ Disabling user on available MikroTik routers (failover)`,
+          `    2️⃣ Deactivating user on available MikroTik routers (failover)`,
         );
-        await this.mikrotikService.disableUser(user.username);
-        this.logger.log(`    ✅ User disabled on MikroTik: ${user.username}`);
+        await this.mikrotikService.deactivateUser(user.username);
+        this.logger.log(`    ✅ User deactivated on MikroTik: ${user.username}`);
       } catch (mikrotikError: any) {
         this.logger.warn(
-          `    ⚠️ Failed to disable ${user.username} on MikroTik: ${mikrotikError.message} (will continue...)`,
+          `    ⚠️ Failed to deactivate ${user.username} on MikroTik: ${mikrotikError.message} (will continue...)`,
         );
         // Continue with database update even if MikroTik fails
       }
