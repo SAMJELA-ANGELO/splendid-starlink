@@ -50,6 +50,12 @@ export class User {
 
   @Prop({ type: String, default: null })
   routerIdentity?: string;
+
+  @Prop({ type: Date, default: Date.now })
+  createdAt?: Date;
+
+  @Prop({ type: Date, default: Date.now })
+  updatedAt?: Date;
 }
 
-export const UserSchema = SchemaFactory.createForClass(User);
+export const UserSchema = SchemaFactory.createForClass(User).set('timestamps', true);

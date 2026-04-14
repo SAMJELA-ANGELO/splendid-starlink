@@ -201,4 +201,131 @@ export class SessionCleanupService {
     this.logger.log(`🔧 Running manual session cleanup...`);
     return this.handleSessionCleanup();
   }
+
+  /**
+   * Manual cleanup method for unactivated users
+   */
+  async manualUnactivatedCleanup() {
+    this.logger.log(`🧹 Running manual unactivated user cleanup...`);
+    return this.handleUnactivatedUserCleanup();
+  }
+
+  /**
+   * Run every 5 minutes to check for unactivated users older than 10 minutes
+   * This ensures unactivated users are removed from MikroTik to free up resources
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async handleUnactivatedUserCleanup() {
+    const startTime = Date.now();
+    const result = {
+      checkedAt: new Date(startTime).toISOString(),
+      unactivatedCount: 0,
+      deletedCount: 0,
+      deletedUsers: [] as string[],
+      failedUsers: [] as { username: string; reason: string }[],
+      elapsedMs: 0,
+    };
+
+    this.logger.log(
+      `🧹 Starting unactivated user cleanup process at ${result.checkedAt}`,
+    );
+
+    try {
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+
+      // Find users who are not active, created more than 10 minutes ago, and exist on MikroTik
+      this.logger.log(`  1️⃣ Querying database for unactivated users older than 10 minutes`);
+      const unactivatedUsers = await this.userModel
+        .find({
+          isActive: false,
+          createdAt: { $lt: tenMinutesAgo },
+          mikrotikCreated: true,
+        })
+        .exec();
+
+      result.unactivatedCount = unactivatedUsers.length;
+
+      if (unactivatedUsers.length === 0) {
+        result.elapsedMs = Date.now() - startTime;
+        this.logger.log(`✅ No unactivated users to clean up (${result.elapsedMs}ms)`);
+        return result;
+      }
+
+      this.logger.log(
+        `  ✅ Found ${unactivatedUsers.length} unactivated user(s) to delete: ${unactivatedUsers
+          .map((u) => u.username)
+          .join(', ')}`,
+      );
+      this.logger.log(`  2️⃣ Processing unactivated users...`);
+
+      for (const user of unactivatedUsers) {
+        const deleteResult = await this.deleteUnactivatedUser(user);
+        if (deleteResult.success) {
+          result.deletedCount += 1;
+          result.deletedUsers.push(user.username);
+        } else {
+          result.failedUsers.push({
+            username: user.username,
+            reason: deleteResult.reason || 'unknown error',
+          });
+        }
+      }
+
+      result.elapsedMs = Date.now() - startTime;
+      this.logger.log(
+        `✅ Unactivated user cleanup complete - processed ${result.unactivatedCount} user(s), deleted ${result.deletedCount}, failed ${result.failedUsers.length} in ${result.elapsedMs}ms`,
+      );
+      if (result.failedUsers.length > 0) {
+        this.logger.warn(
+          `⚠️ Failed cleanup for: ${result.failedUsers
+            .map((f) => `${f.username} (${f.reason})`)
+            .join(', ')}`,
+        );
+      }
+
+      return result;
+    } catch (error: any) {
+      result.elapsedMs = Date.now() - startTime;
+      this.logger.error(`❌ Error during unactivated user cleanup: ${error.message}`);
+      result.failedUsers.push({ username: 'cleanup-run', reason: error.message });
+      return result;
+    }
+  }
+
+  /**
+   * Delete a single unactivated user from MikroTik
+   */
+  private async deleteUnactivatedUser(user: UserDocument) {
+    try {
+      this.logger.log(
+        `  🗑️ Deleting unactivated user: ${user.username} (created: ${user.createdAt})`,
+      );
+
+      // 1. Delete user from MikroTik
+      try {
+        this.logger.log(`    1️⃣ Deleting user from MikroTik: ${user.username}`);
+        await this.mikrotikService.deleteUser(user.username);
+        this.logger.log(`    ✅ User deleted from MikroTik: ${user.username}`);
+      } catch (mikrotikError: any) {
+        this.logger.warn(
+          `    ⚠️ Failed to delete ${user.username} from MikroTik: ${mikrotikError.message} (will continue...)`,
+        );
+        // Continue with database update even if MikroTik fails
+      }
+
+      // 2. Update user status in database (mark as not created on MikroTik)
+      this.logger.log(`    2️⃣ Updating user status in MongoDB`);
+      await this.userModel.findByIdAndUpdate(user._id, {
+        mikrotikCreated: false,
+      });
+
+      this.logger.log(`  ✅ Unactivated user deleted: ${user.username}`);
+      return { success: true };
+    } catch (error: any) {
+      this.logger.error(
+        `  ❌ Error deleting unactivated user ${user.username}: ${error.message}`,
+      );
+      return { success: false, reason: error.message };
+    }
+  }
 }
