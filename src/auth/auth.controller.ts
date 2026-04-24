@@ -130,61 +130,17 @@ export class AuthController {
       this.logger.log(`📡 Should authenticate: ${shouldAuthenticate}`);
 
       if (shouldAuthenticate) {
-        try {
-          // Ensure user exists on MikroTik with login password
-          this.logger.log(`🔍 Checking if user exists on MikroTik: ${user.username}`);
-          const userExistsOnMikrotik = await this.mikrotikService.userExists(user.username);
-          
-          if (!userExistsOnMikrotik) {
-            this.logger.log(`➕ User ${user.username} not found on MikroTik - creating with login password`);
-            await this.mikrotikService.createUser(user.username, body.password);
-            this.logger.log(`✅ MikroTik user created for ${user.username}`);
-          } else {
-            this.logger.log(`✅ User ${user.username} already exists on MikroTik`);
-          }
+        result.data.mikrotikAuth = {
+          success: true,
+          message: 'MikroTik activation queued in the background',
+        };
 
-          // If MAC provided in login request, bind it
-          if (body.macAddress) {
-            // FIX: Decode URL-encoded MAC address (02%3A38... → 02:38:9C...)
-            const decodedMac = decodeURIComponent(body.macAddress);
-            this.logger.log(
-              `📌 Binding MAC ${body.macAddress} → Decoded: ${decodedMac} for WiFi access`,
-            );
-            await this.mikrotikService.bindMacOnAvailableRouter(
-              decodedMac,
-              Math.ceil(
-                (user.sessionExpiry.getTime() - now.getTime()) /
-                  (1000 * 60 * 60),
-              ),
-            );
-            this.logger.log(`✅ MAC binding completed`);
-          }
-
-          // Activate/create hotspot user
-          this.logger.log(`🔄 Activating hotspot user...`);
-          await this.mikrotikService.activateUser(
-            user.username,
-            Math.ceil(
-              (user.sessionExpiry.getTime() - now.getTime()) / (1000 * 60 * 60),
-            ),
-          );
-          this.logger.log(
-            `✅ MikroTik authentication successful for ${user.username}`,
-          );
-          result.data.mikrotikAuth = {
-            success: true,
-            message: 'Authenticated with MikroTik',
-          };
-        } catch (mikrotikError: any) {
-          this.logger.error(
-            `❌ MikroTik authentication FAILED: ${mikrotikError.message}`,
-          );
-          this.logger.error(`❌ Error details:`, mikrotikError);
-          result.data.mikrotikAuth = {
-            success: false,
-            message: mikrotikError.message,
-          };
-        }
+        void this.startBackgroundWiFiActivation(
+          user,
+          body.password,
+          body.macAddress,
+          now,
+        );
       } else {
         this.logger.log(
           `ℹ️ Skipping MikroTik auth - no MAC and plan expired for ${user.username}`,
@@ -216,6 +172,69 @@ export class AuthController {
     this.logger.log(`✅ Response data:`, result.data);
     this.logger.log(`✅ ===== LOGIN END =====`);
     return result;
+  }
+
+  private async startBackgroundWiFiActivation(
+    user: any,
+    password: string,
+    macAddress?: string,
+    loginTime?: Date,
+  ) {
+    this.logger.log(
+      `🚀 Starting background WiFi activation for ${user.username}`,
+    );
+
+    try {
+      this.logger.log(`🔍 Checking if user exists on MikroTik: ${user.username}`);
+      const userExistsOnMikrotik = await this.mikrotikService.userExists(
+        user.username,
+      );
+
+      if (!userExistsOnMikrotik) {
+        this.logger.log(
+          `➕ User ${user.username} not found on MikroTik - creating with login password`,
+        );
+        await this.mikrotikService.createUser(user.username, password);
+        this.logger.log(`✅ MikroTik user created for ${user.username}`);
+      } else {
+        this.logger.log(
+          `✅ User ${user.username} already exists on MikroTik - updating password with login credentials`,
+        );
+        await this.mikrotikService.updateUserPassword(user.username, password);
+        this.logger.log(`✅ MikroTik password updated for ${user.username}`);
+      }
+
+      if (macAddress) {
+        const decodedMac = decodeURIComponent(macAddress);
+        this.logger.log(
+          `📌 Binding MAC ${macAddress} → Decoded: ${decodedMac} for WiFi access`,
+        );
+        await this.mikrotikService.bindMacOnAvailableRouter(
+          decodedMac,
+          Math.ceil(
+            (user.sessionExpiry.getTime() - (loginTime || new Date()).getTime()) /
+              (1000 * 60 * 60),
+          ),
+        );
+        this.logger.log(`✅ MAC binding completed`);
+      }
+
+      this.logger.log(`🔄 Activating hotspot user...`);
+      await this.mikrotikService.activateUser(
+        user.username,
+        Math.ceil(
+          (user.sessionExpiry.getTime() - (loginTime || new Date()).getTime()) /
+            (1000 * 60 * 60),
+        ),
+      );
+      this.logger.log(
+        `✅ MikroTik activation completed for ${user.username} in background`,
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `❌ Background WiFi activation failed for ${user.username}: ${error.message}`,
+      );
+    }
   }
 
   @ApiOperation({ summary: 'Register a new user account' })
