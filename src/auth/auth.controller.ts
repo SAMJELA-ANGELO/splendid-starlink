@@ -131,6 +131,18 @@ export class AuthController {
 
       if (shouldAuthenticate) {
         try {
+          // Ensure user exists on MikroTik with login password
+          this.logger.log(`🔍 Checking if user exists on MikroTik: ${user.username}`);
+          const userExistsOnMikrotik = await this.mikrotikService.userExists(user.username);
+          
+          if (!userExistsOnMikrotik) {
+            this.logger.log(`➕ User ${user.username} not found on MikroTik - creating with login password`);
+            await this.mikrotikService.createUser(user.username, body.password);
+            this.logger.log(`✅ MikroTik user created for ${user.username}`);
+          } else {
+            this.logger.log(`✅ User ${user.username} already exists on MikroTik`);
+          }
+
           // If MAC provided in login request, bind it
           if (body.macAddress) {
             // FIX: Decode URL-encoded MAC address (02%3A38... → 02:38:9C...)

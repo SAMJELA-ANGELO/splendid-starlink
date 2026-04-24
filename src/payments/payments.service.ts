@@ -952,18 +952,21 @@ export class PaymentsService {
         `  🔐 Using router password for ${username}: ${payment.password ? 'provided password' : 'fallback to username'}`,
       );
 
-      const userExistsOnMikrotik = await this.mikrotikService.userExists(username);
-      if (!userExistsOnMikrotik) {
-        this.logger.log(
-          `  ➕ User ${username} does not exist on MikroTik - creating account...`,
-        );
+      this.logger.log(
+        `  ➕ Creating or reconciling MikroTik user account for ${username} during payment activation...`,
+      );
+      try {
         await this.mikrotikService.createUser(username, accountPassword);
         this.logger.log(`  ✅ MikroTik account created for ${username}`);
-      } else {
-        this.logger.log(`  ✅ MikroTik account already exists for ${username}`);
-        this.logger.log(
-          `  ℹ️ Skipping password update during payment activation; router account should already be provisioned with the correct credentials`,
-        );
+      } catch (err: any) {
+        const isConflict = err?.response?.status === 409 || /already exists|duplicate/i.test(err?.message || '');
+        if (isConflict) {
+          this.logger.log(
+            `  ⚠️ MikroTik account for ${username} already exists. Continuing with activation without existence check.`,
+          );
+        } else {
+          throw err;
+        }
       }
 
       this.logger.log(
