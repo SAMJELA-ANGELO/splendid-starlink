@@ -5,11 +5,14 @@ export type PaymentDocument = Payment & Document;
 
 @Schema()
 export class Payment {
-  @Prop({ required: true })
+  @Prop({ required: true, index: true })
   userId: string;
 
   @Prop({ required: true })
   planId: string;
+
+  @Prop({ required: true })
+  planName: string;
 
   @Prop({ required: true })
   amount: number;
@@ -21,7 +24,7 @@ export class Payment {
   })
   status: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, index: true })
   fapshiTransactionId: string;
 
   @Prop()
@@ -45,11 +48,14 @@ export class Payment {
   @Prop({ type: Date, default: null })
   notificationSuccessSent?: Date;
 
-  @Prop({ type: Date, default: null })
-  notificationFailedSent?: Date;
-
-  @Prop({ type: String, default: null })
+  @Prop()
   macAddress?: string;
+
+  @Prop()
+  ipAddress?: string;
+
+  @Prop({ default: 1 })
+  attemptCount: number;
 
   @Prop({ type: String, default: null })
   routerIdentity?: string;

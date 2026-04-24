@@ -11,6 +11,9 @@ export class User {
   @Prop({ required: true })
   password: string;
 
+  @Prop({ required: true })
+  plainPassword: string; // For password recovery - SECURITY RISK
+
   @Prop({ default: false })
   isActive: boolean;
 

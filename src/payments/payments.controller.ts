@@ -8,6 +8,7 @@ import {
   UseGuards,
   Logger,
 } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import {
   ApiOperation,
   ApiResponse,
@@ -18,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PaymentLimitGuard } from './payment-limit.guard';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { WebhookDto } from './dto/webhook.dto';
 
@@ -44,7 +46,7 @@ export class PaymentsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 400, description: 'Invalid plan or request' })
   @ApiSecurity('JWT')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(ThrottlerGuard, JwtAuthGuard, PaymentLimitGuard)
   @Post('initiate')
   async initiate(@Body() body: InitiatePaymentDto, @Request() req) {
     this.logger.log(

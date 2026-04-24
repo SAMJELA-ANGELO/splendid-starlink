@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -14,6 +15,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { BillingModule } from './billing/billing.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { ActivitiesModule } from './activities/activities.module';
+import { BlacklistModule } from './blacklist/blacklist.module';
 import { AdminSeederService } from './auth/admin-seeder.service';
 
 @Module({
@@ -21,6 +23,12 @@ import { AdminSeederService } from './auth/admin-seeder.service';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 900000, // 15 minutes in milliseconds
+        limit: 3, // 3 attempts per 15 minutes
+      },
+    ]),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -39,6 +47,7 @@ import { AdminSeederService } from './auth/admin-seeder.service';
     BillingModule,
     MetricsModule,
     ActivitiesModule,
+    BlacklistModule,
   ],
   controllers: [AppController],
   providers: [AppService, AdminSeederService],

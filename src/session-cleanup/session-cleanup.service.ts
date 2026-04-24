@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from '../schemas/user.schema';
+import { Payment, PaymentDocument } from '../schemas/payment.schema';
 import { MikrotikService } from '../mikrotik/mikrotik.service';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class SessionCleanupService {
 
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Payment.name) private paymentModel: Model<PaymentDocument>,
     private mikrotikService: MikrotikService,
   ) {}
 
@@ -326,6 +328,74 @@ export class SessionCleanupService {
         `  ❌ Error deactivating unactivated user ${user.username}: ${error.message}`,
       );
       return { success: false, reason: error.message };
+    }
+  }
+
+  /**
+   * Run every 10 minutes to expire old pending payments
+   * This prevents transaction locks from getting stuck
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async handlePendingPaymentCleanup() {
+    const startTime = Date.now();
+    const result = {
+      checkedAt: new Date(startTime).toISOString(),
+      pendingCount: 0,
+      expiredCount: 0,
+      expiredPayments: [] as string[],
+      elapsedMs: 0,
+    };
+
+    this.logger.log(
+      `💸 Starting pending payment cleanup process at ${result.checkedAt}`,
+    );
+
+    try {
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+
+      // Find payments that are pending and older than 15 minutes
+      this.logger.log(`  1️⃣ Querying database for pending payments older than 15 minutes`);
+      const pendingPayments = await this.paymentModel
+        .find({
+          status: 'pending',
+          createdAt: { $lt: fifteenMinutesAgo },
+        })
+        .exec();
+
+      result.pendingCount = pendingPayments.length;
+
+      if (pendingPayments.length === 0) {
+        result.elapsedMs = Date.now() - startTime;
+        this.logger.log(`✅ No pending payments to expire (${result.elapsedMs}ms)`);
+        return result;
+      }
+
+      this.logger.log(
+        `  ✅ Found ${pendingPayments.length} pending payment(s) to expire: ${pendingPayments
+          .map((p) => p.fapshiTransactionId)
+          .join(', ')}`,
+      );
+      this.logger.log(`  2️⃣ Expiring pending payments...`);
+
+      for (const payment of pendingPayments) {
+        await this.paymentModel.findByIdAndUpdate(payment._id, {
+          status: 'EXPIRED',
+        });
+        result.expiredCount += 1;
+        result.expiredPayments.push(payment.fapshiTransactionId);
+        this.logger.log(`    ✅ Expired payment: ${payment.fapshiTransactionId}`);
+      }
+
+      result.elapsedMs = Date.now() - startTime;
+      this.logger.log(
+        `✅ Pending payment cleanup complete - processed ${result.pendingCount} payment(s), expired ${result.expiredCount} in ${result.elapsedMs}ms`,
+      );
+
+      return result;
+    } catch (error: any) {
+      result.elapsedMs = Date.now() - startTime;
+      this.logger.error(`❌ Error during pending payment cleanup: ${error.message}`);
+      return result;
     }
   }
 }

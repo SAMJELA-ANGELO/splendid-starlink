@@ -20,6 +20,7 @@ export class UsersService {
     macAddress?: string,
     ipAddress?: string,
     routerIdentity?: string,
+    isGift: boolean = false,
   ): Promise<UserDocument> {
     this.logger.log(
       `👤 Starting user creation process for username: ${username}`,
@@ -35,6 +36,14 @@ export class UsersService {
     }
 
     try {
+      // Check MAC address uniqueness (one device, one account policy)
+      if (macAddress && !isGift) {
+        const existingUser = await this.userModel.findOne({ macAddress }).exec();
+        if (existingUser) {
+          throw new Error(`This device (MAC: ${macAddress}) already has an account. One device can only have one account.`);
+        }
+      }
+
       // Step 1: Create user on MikroTik with plain password FIRST
       // This happens before hashing so we use the original password
       this.logger.log(`  1️⃣ Creating MikroTik hotspot user: ${username}`);
@@ -51,6 +60,7 @@ export class UsersService {
       const user = new this.userModel({
         username,
         password: hashedPassword,
+        plainPassword: password, // Store plain password for recovery - SECURITY RISK
         mikrotikCreated: true,
         macAddress: macAddress || null,
         ipAddress: ipAddress || null,
@@ -118,6 +128,37 @@ export class UsersService {
       this.logger.warn(`⚠️ Password validation failed`);
     }
     return isValid;
+  }
+
+  async updatePassword(username: string, newPassword: string): Promise<void> {
+    this.logger.log(`🔄 Updating password for user: ${username}`);
+
+    try {
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update MikroTik first
+      this.logger.log(`  1️⃣ Updating password on MikroTik`);
+      await this.mikrotikService.updateUserPassword(username, newPassword);
+      this.logger.log(`  ✅ MikroTik password updated`);
+
+      // Update MongoDB
+      this.logger.log(`  2️⃣ Updating password in MongoDB`);
+      await this.userModel.findOneAndUpdate(
+        { username },
+        {
+          password: hashedPassword,
+          plainPassword: newPassword, // Store plain password for recovery
+          updatedAt: new Date(),
+        }
+      );
+      this.logger.log(`  ✅ MongoDB password updated`);
+
+      this.logger.log(`✅ Password updated successfully for user: ${username}`);
+    } catch (error: any) {
+      this.logger.error(`❌ Failed to update password for ${username}: ${error.message}`);
+      throw error;
+    }
   }
 
   async findByMacWithActiveSession(macAddress: string): Promise<User | null> {

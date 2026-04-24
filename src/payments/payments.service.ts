@@ -1,3 +1,6 @@
+import { randomBytes } from 'crypto';
+import { Agent as HttpAgent } from 'http';
+import { Agent as HttpsAgent } from 'https';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -6,19 +9,104 @@ import { UsersService } from '../users/users.service';
 import { PlansService } from '../plans/plans.service';
 import { MikrotikService } from '../mikrotik/mikrotik.service';
 import { ActivitiesService } from '../activities/activities.service';
+import { BlacklistService } from '../blacklist/blacklist.service';
+import { PaymentsGateway } from './payments.gateway';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PaymentsService {
   private logger = new Logger('PaymentsService');
+  private httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 50 });
+  private httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 50 });
+
+  private getAxiosConfig(additional: Record<string, any> = {}) {
+    return {
+      timeout: 10000,
+      httpAgent: this.httpAgent,
+      httpsAgent: this.httpsAgent,
+      ...additional,
+    };
+  }
+
+  private isTestAutoPaymentEnabled() {
+    const testMode =
+      this.configService.get('PAYMENT_TEST_MODE') ??
+      process.env.PAYMENT_TEST_MODE;
+    return String(testMode).toLowerCase() === 'true';
+  }
+
+  private scheduleTestAutoSuccess(payment: PaymentDocument) {
+    const transactionId = payment.fapshiTransactionId;
+    this.logger.warn(`🚧 Test payment auto-success enabled for ${transactionId}`);
+
+    setTimeout(async () => {
+      try {
+        const savedPayment = await this.paymentModel.findById(payment._id);
+        if (!savedPayment) {
+          this.logger.error(
+            `❌ Auto-success test failed: payment record not found ${transactionId}`,
+          );
+          return;
+        }
+
+        savedPayment.status = 'SUCCESSFUL';
+        savedPayment.fapshiResponse = {
+          status: 'SUCCESSFUL',
+          message: 'Auto-success test payment',
+          transId: transactionId,
+        };
+        await savedPayment.save();
+
+        this.paymentsGateway.emitPaymentStatus(transactionId, 'SUCCESSFUL', {
+          message: 'Test payment auto-approved',
+          planName: savedPayment.planName,
+          amount: savedPayment.amount,
+        });
+
+        await this.activateUserAccess(savedPayment)
+          .then((activationResult) => {
+            if (activationResult?.success) {
+              this.paymentsGateway.emitPaymentStatus(transactionId, 'ACTIVATED', {
+                message: 'Activation completed successfully',
+                activation: activationResult,
+              });
+            } else {
+              this.paymentsGateway.emitPaymentStatus(transactionId, 'ACTIVATION_FAILED', {
+                message: 'Activation failed after test payment success',
+                error:
+                  (activationResult as any)?.message ||
+                  (activationResult as any)?.error ||
+                  'Unknown activation failure',
+              });
+            }
+          })
+          .catch((activationError) => {
+            this.logger.error(
+              `❌ Auto-success activation error for ${transactionId}: ${activationError?.message || activationError}`,
+            );
+            this.paymentsGateway.emitPaymentStatus(transactionId, 'ACTIVATION_ERROR', {
+              message: 'Activation encountered an error after test payment success',
+              error: activationError?.message || activationError,
+            });
+          });
+      } catch (error: any) {
+        this.logger.error(
+          `❌ Auto-success scheduling failed for ${transactionId}: ${error?.message || error}`,
+        );
+      }
+    }, 3000);
+  }
+
   constructor(
     @InjectModel(Payment.name) private paymentModel: Model<PaymentDocument>,
     private usersService: UsersService,
     private plansService: PlansService,
     private mikrotikService: MikrotikService,
     private activitiesService: ActivitiesService,
+    private blacklistService: BlacklistService,
     private configService: ConfigService,
+    private paymentsGateway: PaymentsGateway,
   ) {}
 
   async initiatePayment(
@@ -37,12 +125,58 @@ export class PaymentsService {
   ) {
     this.logger.log(`💶 Initiating payment for user ${userId}, plan ${planId}`);
     try {
-      this.logger.log(`  1️⃣ Fetching plan: ${planId}`);
-      const plan = await this.plansService.findById(planId);
+      this.logger.log(`  1️⃣ Loading initial payment data`);
+      const planPromise = this.plansService.findById(planId);
+      const userPromise = this.usersService.findById(userId);
+      const macBlacklistPromise = macAddress
+        ? this.blacklistService.isBlacklisted('MAC', macAddress)
+        : Promise.resolve(false);
+      const ipBlacklistPromise = userIp
+        ? this.blacklistService.isBlacklisted('IP', userIp)
+        : Promise.resolve(false);
+      const phoneBlacklistPromise = phone
+        ? this.blacklistService.isBlacklisted('PHONE', phone)
+        : Promise.resolve(false);
+      const phoneStrikePromise =
+        macAddress && phone
+          ? this.blacklistService.checkPhoneStrikeSystem(macAddress, phone)
+          : Promise.resolve(false);
+
+      const [plan, user] = await Promise.all([planPromise, userPromise]);
+
       if (!plan) throw new Error('Plan not found');
+      if (!user) throw new Error('User not found');
+      this.logger.log(`  ✅ User found: ${user.username}`);
       this.logger.log(
         `  ✅ Plan found: ${plan.name} (${plan.price} XAF, ${plan.duration}h)`,
       );
+
+      // Wait for blacklist checks to complete
+      const [
+        isMacBlocked,
+        isIpBlocked,
+        isPhoneBlocked,
+        isStrikeTriggered,
+      ] = await Promise.all([
+        macBlacklistPromise,
+        ipBlacklistPromise,
+        phoneBlacklistPromise,
+        phoneStrikePromise,
+      ]);
+
+      if (isMacBlocked) {
+        throw new Error('This device is temporarily blocked due to suspicious activity.');
+      }
+      if (isIpBlocked) {
+        throw new Error('This IP address is temporarily blocked due to suspicious activity.');
+      }
+      if (isPhoneBlocked) {
+        throw new Error('This phone number is temporarily blocked due to suspicious activity.');
+      }
+
+      if (isStrikeTriggered) {
+        throw new Error('This device has been temporarily blocked due to multiple phone number usage.');
+      }
 
       // Validation
       if (!phone)
@@ -80,20 +214,61 @@ export class PaymentsService {
       if (externalId) paymentData.externalId = externalId;
       if (name) paymentData.name = name;
 
+      if (this.isTestAutoPaymentEnabled()) {
+        const fakeTransId = `TEST-${Date.now()}-${randomBytes(4).toString('hex')}`;
+        this.logger.warn(
+          `🚧 Skipping Fapshi call in test mode and auto-succeeding payment ${fakeTransId}`,
+        );
+
+        // Create and save a test payment record that will auto-succeed shortly.
+        const payment = new this.paymentModel({
+          userId,
+          planId,
+          planName: plan.name,
+          amount: plan.price,
+          email,
+          phone,
+          externalId,
+          macAddress,
+          ipAddress: userIp,
+          routerIdentity,
+          password,
+          isGift: isGift || false,
+          recipientUsername: recipientUsername || null,
+          status: 'created',
+          fapshiTransactionId: fakeTransId,
+          fapshiResponse: {
+            status: 'created',
+            message: 'Auto-success test payment created',
+            testMode: true,
+          },
+        });
+        await payment.save();
+
+        void this.scheduleTestAutoSuccess(payment);
+
+        return {
+          paymentId: payment._id,
+          transId: fakeTransId,
+          message:
+            'Test payment created. Transaction will auto-succeed in 3 seconds.',
+        };
+      }
+
       // Call Fapshi API directPay endpoint (sends payment to mobile)
       this.logger.log(`  3️⃣ Calling Fapshi direct-pay API`);
       const fapshiResponse = await axios.post(
         `${this.configService.get('FAPSHI_BASE_URL')}/direct-pay`,
         paymentData,
-        {
+        this.getAxiosConfig({
           headers: {
             'Content-Type': 'application/json',
             apiuser: this.configService.get('FAPSHI_APIUSER'),
             apikey: this.configService.get('FAPSHI_APIKEY'),
           },
-          timeout: 10000,
-        },
+        }),
       );
+
       this.logger.log(
         `  ✅ Fapshi response received: TransID ${fapshiResponse.data.transId}`,
       );
@@ -103,13 +278,14 @@ export class PaymentsService {
       const payment = new this.paymentModel({
         userId,
         planId,
+        planName: plan.name,
         amount: plan.price,
         email,
         phone,
         externalId,
         macAddress,
+        ipAddress: userIp,
         routerIdentity,
-        userIp,
         password,
         isGift: isGift || false,
         recipientUsername: recipientUsername || null,
@@ -219,14 +395,13 @@ export class PaymentsService {
       this.logger.log(`  1️⃣ Querying Fapshi API for status`);
       const response = await axios.get(
         `${this.configService.get('FAPSHI_BASE_URL')}/payment-status/${transactionId}`,
-        {
+        this.getAxiosConfig({
           headers: {
             'Content-Type': 'application/json',
             apiuser: this.configService.get('FAPSHI_APIUSER'),
             apikey: this.configService.get('FAPSHI_APIKEY'),
           },
-          timeout: 10000,
-        },
+        }),
       );
       this.logger.log(
         `  ✅ Status received from Fapshi: ${response.data.status}`,
@@ -256,16 +431,39 @@ export class PaymentsService {
 
       // Activate user if payment succeeded
       if (response.data.status === 'SUCCESSFUL') {
-        this.logger.log(`  4️⃣ Payment successful - activating user access`);
-        const activationResult = await this.activateUserAccess(payment);
+        this.logger.log(`  4️⃣ Payment successful - scheduling background activation`);
+        this.activateUserAccess(payment)
+          .then((activationResult) => {
+            if (activationResult?.success) {
+              this.logger.log(
+                `✅ Background activation completed for ${payment._id}: ${activationResult.message}`,
+              );
+            } else {
+              const activationResultMessage =
+                (activationResult as any)?.message ||
+                (activationResult as any)?.error ||
+                'Unknown activation failure';
+              this.logger.error(
+                `❌ Background activation failed for ${payment._id}: ${activationResultMessage}`,
+              );
+            }
+          })
+          .catch((activationError) => {
+            this.logger.error(
+              `❌ Background activation error for ${payment._id}: ${activationError?.message || activationError}`,
+            );
+          });
+
         this.logger.log(`✅ Payment status check complete: ${transactionId}`);
         return {
           ...response.data,
-          activation: activationResult,
+          activation: {
+            inProgress: true,
+            message: 'Activation started in the background',
+          },
           isGift: payment.isGift,
           recipientUsername: payment.recipientUsername,
-          message:
-            activationResult?.message || 'Payment completed and user activated',
+          message: 'Payment completed. User activation is in progress.',
         };
       }
 
@@ -312,17 +510,20 @@ export class PaymentsService {
 
   private async pollFapshiStatus(
     transactionId: string,
-    intervalMs = 2000,
+    initialIntervalMs = 2000,
     timeoutMs = 180000,
   ) {
     this.logger.log(
       `🔁 Starting polling for Fapshi status fallback: ${transactionId}`,
     );
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    const backoffIntervals = [initialIntervalMs, 5000, 10000, 30000];
+    const startTime = Date.now();
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (Date.now() - startTime < timeoutMs) {
+      attempt += 1;
       this.logger.log(
-        `  ⏱️ Poll attempt ${attempt}/${maxAttempts} for ${transactionId}`,
+        `  ⏱️ Poll attempt ${attempt} for ${transactionId}`,
       );
       try {
         const result = await this.checkPaymentStatus(transactionId);
@@ -348,15 +549,79 @@ export class PaymentsService {
         );
       }
 
-      if (attempt < maxAttempts) {
-        await this.sleep(intervalMs);
+      const elapsed = Date.now() - startTime;
+      const nextInterval = backoffIntervals[
+        Math.min(attempt - 1, backoffIntervals.length - 1)
+      ];
+      if (elapsed + nextInterval >= timeoutMs) {
+        break;
       }
+      await this.sleep(nextInterval);
     }
 
     this.logger.warn(
       `⌛ Polling timeout reached for ${transactionId} after ${timeoutMs / 1000}s`,
     );
     return null;
+  }
+
+  private reconnectUserInBackground(user: any, remainingHours: number) {
+    if (!user?.username) {
+      this.logger.warn(
+        `⚠️ Background reconnection skipped: missing username`,
+      );
+      return Promise.resolve();
+    }
+
+    this.logger.log(
+      `  📌 Background router reactivation for ${user.username}`,
+    );
+    this.logger.log(
+      `     MAC: ${user.macAddress || 'none'}, IP: ${user.ipAddress || 'none'}`,
+    );
+
+    return this.mikrotikService
+      .activateOnAvailableRouter(user.username, remainingHours, user.macAddress)
+      .then((result) => {
+        this.logger.log(
+          `  ✅ Background router activation succeeded: ${result?.activeRouter || 'unknown router'}`,
+        );
+      })
+      .catch((error: any) => {
+        this.logger.error(
+          `❌ Background reconnection failed for ${user.username}: ${error?.message || error}`,
+        );
+      });
+  }
+
+  private logActivityInBackground(
+    userId: string,
+    eventType: string,
+    category: string,
+    message: string,
+    status: string,
+    metadata?: any,
+    channel?: any,
+    extra?: any,
+  ) {
+    const activityPromise = this.activitiesService.logActivity(
+      userId,
+      eventType,
+      category,
+      message,
+      status,
+      metadata,
+      channel,
+      extra,
+    );
+
+    if (activityPromise && typeof (activityPromise as any).catch === 'function') {
+      void (activityPromise as any).catch((activityError: any) => {
+        this.logger.error(
+          `❌ Activity log failed for payment ${userId}: ${activityError?.message || activityError}`,
+        );
+      });
+    }
   }
 
   async handleWebhookNotification(data: any) {
@@ -375,14 +640,13 @@ export class PaymentsService {
       this.logger.log(`  1️⃣ Verifying transaction with Fapshi API`);
       const statusResponse = await axios.get(
         `${this.configService.get('FAPSHI_BASE_URL')}/payment-status/${data.transId}`,
-        {
+        this.getAxiosConfig({
           headers: {
             'Content-Type': 'application/json',
             apiuser: this.configService.get('FAPSHI_APIUSER'),
             apikey: this.configService.get('FAPSHI_APIKEY'),
           },
-          timeout: 10000,
-        },
+        }),
       );
       this.logger.log(
         `  ✅ Fapshi verification complete: ${statusResponse.data.status}`,
@@ -410,19 +674,59 @@ export class PaymentsService {
       await payment.save();
       this.logger.log(`  ✅ Payment status updated: ${payment.status}`);
 
+      // Emit real-time status update via WebSocket
+      this.paymentsGateway.emitPaymentStatus(data.transId, payment.status, {
+        message: `Payment ${payment.status}`,
+        planName: (payment as any).planName,
+        amount: payment.amount,
+      });
+
       // Handle different statuses
       this.logger.log(`  4️⃣ Processing payment result`);
       switch (statusResponse.data.status) {
         case 'SUCCESSFUL':
-          this.logger.log(`  ✅ Payment SUCCESSFUL - activating user access`);
-          const activationResult = await this.activateUserAccess(payment);
+          this.logger.log(`  ✅ Payment SUCCESSFUL - scheduling background activation`);
+          this.activateUserAccess(payment)
+            .then((activationResult) => {
+              if (activationResult?.success) {
+                this.logger.log(
+                  `✅ Background activation completed for ${payment._id}: ${activationResult.message}`,
+                );
+                // Emit activation success
+                this.paymentsGateway.emitPaymentStatus(data.transId, 'ACTIVATED', {
+                  message: 'User access activated successfully',
+                  activation: activationResult,
+                });
+              } else {
+                const activationResultMessage =
+                  (activationResult as any)?.message ||
+                  (activationResult as any)?.error ||
+                  'Unknown activation failure';
+                this.logger.error(
+                  `❌ Background activation failed for ${payment._id}: ${activationResultMessage}`,
+                );
+                // Emit activation failure
+                this.paymentsGateway.emitPaymentStatus(data.transId, 'ACTIVATION_FAILED', {
+                  message: 'Payment successful but activation failed',
+                  error: activationResultMessage,
+                });
+              }
+            })
+            .catch((activationError) => {
+              this.logger.error(
+                `❌ Background activation error for ${payment._id}: ${activationError?.message || activationError}`,
+              );
+              // Emit activation error
+              this.paymentsGateway.emitPaymentStatus(data.transId, 'ACTIVATION_ERROR', {
+                message: 'Payment successful but activation encountered an error',
+                error: activationError?.message || activationError,
+              });
+            });
+
           return {
             success: true,
-            status: statusResponse.data.status,
-            activation: activationResult,
-            message:
-              activationResult?.message ||
-              'Payment completed and user activated',
+            status: 'ok',
+            message: 'Payment accepted. Activation is processing in the background.',
           };
         case 'FAILED':
           this.logger.warn(`  ❌ Payment FAILED: ${data.transId}`);
@@ -447,6 +751,11 @@ export class PaymentsService {
             }
           }
 
+          // Emit failure status
+          this.paymentsGateway.emitPaymentStatus(data.transId, 'FAILED', {
+            message: failureMessage,
+          });
+
           return {
             success: false,
             status: 'FAILED',
@@ -454,6 +763,10 @@ export class PaymentsService {
           };
         case 'EXPIRED':
           this.logger.warn(`  ⏱️ Payment EXPIRED: ${data.transId}`);
+          // Emit expired status
+          this.paymentsGateway.emitPaymentStatus(data.transId, 'EXPIRED', {
+            message: 'Payment request has expired',
+          });
           return {
             success: false,
             status: 'EXPIRED',
@@ -629,102 +942,42 @@ export class PaymentsService {
         `  ✅ ${isGift ? 'Recipient' : 'User'} ${needsReactivation ? 'reactivated' : 'activated'} in MongoDB${isGift ? '' : ' with device info'}`,
       );
 
-      // Activate on MikroTik - FIRST: Check if user exists, create if not, then activate
+      // Activate on MikroTik - FIRST: ensure the user account exists and the router state is provisioned.
       this.logger.log(
-        `  5️⃣ Checking MikroTik user account for: ${username}`,
+        `  5️⃣ Ensuring MikroTik user account exists and is provisioned: ${username}`,
       );
 
-      // Check if user exists on MikroTik
-      this.logger.log(`  🔍 Checking if user ${username} exists on MikroTik...`);
+      const accountPassword = payment.password || username;
+      this.logger.log(
+        `  🔐 Using router password for ${username}: ${payment.password ? 'provided password' : 'fallback to username'}`,
+      );
+
       const userExistsOnMikrotik = await this.mikrotikService.userExists(username);
-
       if (!userExistsOnMikrotik) {
-        this.logger.log(`  ➕ User ${username} does not exist on MikroTik - creating user account first...`);
-        try {
-          // Create the user account on MikroTik first
-          await this.mikrotikService.createUser(username, payment.password || username);
-          this.logger.log(`  ✅ User ${username} created successfully on MikroTik`);
-        } catch (createError: any) {
-          this.logger.error(`  ❌ Failed to create user ${username} on MikroTik: ${createError.message}`);
-          throw new Error(`Failed to create user account on MikroTik: ${createError.message}`);
-        }
+        this.logger.log(
+          `  ➕ User ${username} does not exist on MikroTik - creating account...`,
+        );
+        await this.mikrotikService.createUser(username, accountPassword);
+        this.logger.log(`  ✅ MikroTik account created for ${username}`);
       } else {
-        this.logger.log(`  ✅ User ${username} already exists on MikroTik`);
+        this.logger.log(`  ✅ MikroTik account already exists for ${username}`);
+        this.logger.log(
+          `  ℹ️ Skipping password update during payment activation; router account should already be provisioned with the correct credentials`,
+        );
       }
 
-      // Now activate/create hotspot user (this will handle the duration and router assignment)
       this.logger.log(
-        `  6️⃣ ${needsReactivation ? 'Reactivating' : 'Creating'} hotspot user on MikroTik router`,
+        `  6️⃣ Provisioning router state for ${username} (${plan.duration}h)`,
       );
-      try {
-        this.logger.log(
-          `  📌 ${needsReactivation ? 'Reactivating' : 'Creating'} hotspot user account: ${username}`,
-        );
-        const createUserResult =
-          await this.mikrotikService.createHotspotUserOnly(
-            username,
-            plan.duration,
-          );
-        this.logger.log(
-          `  ✅ Hotspot user ${needsReactivation ? 'reactivated' : 'created'} on router: ${createUserResult.activeRouter}`,
-        );
-        (payment as any).activeRouter = createUserResult.activeRouter;
-
-        // Check if we can attempt silent login after device connects
-        this.logger.log(`  7️⃣ CHECKING SILENT LOGIN CAPABILITIES:`);
-        this.logger.log(`     - isGift: ${isGift}`);
-        this.logger.log(`     - payment.macAddress: ${payment.macAddress}`);
-        this.logger.log(`     - payment.userIp: ${payment.userIp}`);
-        this.logger.log(
-          `     - payment.password: ${payment.password ? '(present)' : '(MISSING)'}`,
-        );
-
-        const canAttemptSilentLogin =
-          !isGift && payment.macAddress && payment.userIp && payment.password;
-        if (canAttemptSilentLogin) {
-          this.logger.log(
-            `     → ✅ SILENT LOGIN AVAILABLE - Will attempt after device connects to WiFi`,
-          );
-          this.logger.log(
-            `     📌 Device must connect to WiFi first to appear in /ip/hotspot/host`,
-          );
-        } else {
-          this.logger.log(
-            `     → ℹ️ STANDARD LOGIN ONLY - Device will authenticate via portal`,
-          );
-        }
-      } catch (activateError: any) {
-        this.logger.error(
-          `  ❌ MikroTik user creation failed: ${activateError.message}`,
-        );
-
-        // Convert MikroTik errors to user-friendly messages
-        let userFriendlyMessage = 'Internet access setup failed. Please contact support.';
-
-        if (activateError.message) {
-          const errorMsg = activateError.message.toLowerCase();
-
-          if (errorMsg.includes('connection') || errorMsg.includes('connect')) {
-            userFriendlyMessage = 'Unable to connect to internet router. Please try again in a few minutes.';
-          } else if (errorMsg.includes('timeout') || errorMsg.includes('network')) {
-            userFriendlyMessage = 'Router connection timed out. Your payment was successful - please try logging in manually.';
-          } else if (errorMsg.includes('unreachable') || errorMsg.includes('refused')) {
-            userFriendlyMessage = 'Internet service temporarily unavailable. Your payment was successful - access will be available shortly.';
-          } else if (errorMsg.includes('all routers failed') || errorMsg.includes('available router')) {
-            userFriendlyMessage = 'All internet routers are currently offline. Your payment was successful - please try again later.';
-          } else {
-            // Use the original message if it's concise and technical details are stripped
-            userFriendlyMessage = activateError.message.length < 150
-              ? `Internet setup failed: ${activateError.message}`
-              : userFriendlyMessage;
-          }
-        }
-
-        // Create a new error with user-friendly message but keep technical details for logging
-        const userError = new Error(userFriendlyMessage);
-        userError.name = 'MikroTikActivationError';
-        throw userError;
-      }
+      const routerProvisionResult = await this.mikrotikService.activateOnAvailableRouter(
+        username,
+        plan.duration,
+        payment.macAddress,
+      );
+      this.logger.log(
+        `  ✅ Router provisioning completed for ${username}: ${routerProvisionResult.activeRouter}`,
+      );
+      (payment as any).activeRouter = routerProvisionResult.activeRouter;
 
       // Save activeRouter field for audit trail
       if ((payment as any).activeRouter) {
@@ -732,9 +985,25 @@ export class PaymentsService {
         await payment.save();
       }
 
-      // Log activity for successful payment
+      this.logger.log(
+        `  ℹ️ Activation is now state-based. User can connect to WiFi when ready.`,
+      );
+
+      const activationResult = {
+        success: true,
+        username,
+        password: accountPassword,
+        sessionExpiry: expiry.toISOString(),
+        activeRouter: routerProvisionResult.activeRouter,
+        message: isGift
+          ? `Gift activated for ${username}. Recipient can now log in manually.`
+          : `User ${needsReactivation ? 'reactivated' : 'activated'} and ready for WiFi login.`,
+        wasReactivation: needsReactivation,
+        isGift: isGift,
+      };
+
       const plan_ref = await this.plansService.findById(payment.planId);
-      await this.activitiesService.logActivity(
+      this.logActivityInBackground(
         payment.userId,
         'payment_processed',
         'payment',
@@ -760,30 +1029,13 @@ export class PaymentsService {
       this.logger.log(
         `✅ ${isGift ? 'Gift recipient' : 'User'} ${needsReactivation ? 'reactivation' : 'activation'} complete: ${username}`,
       );
-
-      // Return activation data for silent login on frontend (only for self-purchase)
-      const activationResult = {
-        success: true,
-        username: username,
-        sessionExpiry: expiry.toISOString(),
-        readyForSilentLogin: !isGift, // Silent login only available for self-purchase
-        message: isGift
-          ? `Gift activated for ${username} - recipient can now log in manually`
-          : `User ${needsReactivation ? 'reactivated' : 'activated'} - ready for silent login`,
-        wasReactivation: needsReactivation,
-        isGift: isGift,
-      };
-
-      this.logger.log(
-        `   📦 Returning activation result: ${JSON.stringify(activationResult)}`,
-      );
       return activationResult;
     } catch (error: any) {
       this.logger.error(`❌ Error activating user access: ${error.message}`);
 
       // Log failed payment
       const plan_ref = await this.plansService.findById(payment.planId);
-      await this.activitiesService.logActivity(
+      this.logActivityInBackground(
         payment.userId,
         'payment_failed',
         'payment',
@@ -841,92 +1093,19 @@ export class PaymentsService {
       const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
       this.logger.log(`  ✅ Remaining session time: ${remainingHours} hours`);
 
-      // Reactivate on MikroTik - move user from Hosts to Active
       this.logger.log(
         `  3️⃣ Reactivating user on MikroTik router (Hosts → Active)`,
       );
-      try {
-        // For returning users with MAC & IP: Attempt silent login to move from Hosts to Active
-        // Otherwise: Just ensure hotspot user exists
-        if (user.macAddress && user.ipAddress) {
-          this.logger.log(
-            `  📌 Attempting silent login - moving user from Hosts to Active`,
-          );
-          this.logger.log(
-            `     MAC: ${user.macAddress}, IP: ${user.ipAddress}`,
-          );
+      void this.reconnectUserInBackground(user, remainingHours);
 
-          try {
-            // Try to perform silent login to move user from Hosts to Active
-            const silentLoginResult = await this.mikrotikService.silentLogin(
-              user.username,
-              user.password || '', // Use password if available
-              user.macAddress,
-              user.ipAddress,
-              remainingHours,
-            );
-            this.logger.log(
-              `  ✅ Silent login successful - user moved to Active tab on router: ${silentLoginResult.activeRouter}`,
-            );
-            return {
-              reconnected: true,
-              username: user.username,
-              remainingTime: remainingMs,
-              remainingHours: remainingHours,
-            };
-          } catch (silentLoginError: any) {
-            // Silent login failed - fallback to just ensuring user exists in hotspot
-            this.logger.log(
-              `  ⚠️ Silent login failed: ${silentLoginError.message}`,
-            );
-            this.logger.log(
-              `  📌 Falling back to basic hotspot user verification`,
-            );
-            const createUserResult =
-              await this.mikrotikService.createHotspotUserOnly(
-                user.username,
-                remainingHours,
-              );
-            this.logger.log(
-              `  ✅ User verified on hotspot Hosts tab on router: ${createUserResult.activeRouter}`,
-            );
-            this.logger.log(
-              `  ℹ️ User is ready for normal login or silent login once device connects`,
-            );
-          }
-        } else {
-          this.logger.log(
-            `  📌 Basic reconnection - ensuring hotspot user exists: ${user.username}`,
-          );
-          const createUserResult =
-            await this.mikrotikService.createHotspotUserOnly(
-              user.username,
-              remainingHours,
-            );
-          this.logger.log(
-            `  ✅ Hotspot user verified on router: ${createUserResult.activeRouter}`,
-          );
-          this.logger.log(`  ℹ️ User account exists on MikroTik (Hosts tab)`);
-        }
-
-        return {
-          reconnected: true,
-          username: user.username,
-          remainingTime: remainingMs,
-          remainingHours: remainingHours,
-        };
-      } catch (error: any) {
-        this.logger.error(`❌ Error reconnecting user: ${error.message}`);
-        // Log error but don't throw - user can still proceed even if reconnection fails
-        return {
-          reconnected: false,
-          reason: `Connection error: ${error.message}`,
-        };
-      }
+      return {
+        reconnected: true,
+        username: user.username,
+        remainingTime: remainingMs,
+        remainingHours: remainingHours,
+      };
     } catch (error: any) {
-      this.logger.error(
-        `❌ Unexpected error in reconnectUserIfNeeded: ${error.message}`,
-      );
+      this.logger.error(`❌ Unexpected error in reconnectUserIfNeeded: ${error.message}`);
       return {
         reconnected: false,
         reason: `Unexpected error: ${error.message}`,

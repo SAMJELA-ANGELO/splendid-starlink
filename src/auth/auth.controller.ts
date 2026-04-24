@@ -239,7 +239,9 @@ export class AuthController {
         body.username,
         body.password,
         body.macAddress,
+        undefined, // ipAddress
         body.routerIdentity,
+        false, // isGift
       );
       this.logger.log(
         `✅ User registered successfully: ${body.username} (ID: ${user._id})`,
@@ -383,6 +385,94 @@ export class AuthController {
       this.logger.error(`❌ Error message: ${error.message}`);
       this.logger.error(`❌ Error stack:`, error.stack);
       this.logger.error(`❌ Full error object:`, error);
+      throw error;
+    }
+  }
+
+  @ApiOperation({ summary: 'Recover/view current password' })
+  @ApiResponse({
+    status: 200,
+    description: 'Password recovery successful',
+    schema: {
+      example: {
+        success: true,
+        message: 'Password recovered successfully',
+        data: {
+          username: 'john_doe',
+          currentPassword: 'mySecretPass123',
+          lastChanged: '2024-01-15T10:30:00Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @Post('recover-password')
+  async recoverPassword(@Body() body: { username: string }) {
+    this.logger.log(`🔑 Password recovery requested for username: ${body.username}`);
+
+    try {
+      const user = await this.usersService.findByUsername(body.username);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Return the plain password (SECURITY RISK - as requested)
+      const result = {
+        success: true,
+        message: 'Password recovered successfully',
+        data: {
+          username: user.username,
+          currentPassword: user.plainPassword,
+          lastChanged: user.updatedAt || user.createdAt,
+          macAddress: user.macAddress,
+          isActive: user.isActive,
+        },
+      };
+
+      this.logger.log(`✅ Password recovered for user: ${body.username}`);
+      return result;
+    } catch (error: any) {
+      this.logger.error(`❌ Password recovery failed for ${body.username}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  @ApiOperation({ summary: 'Change password' })
+  @ApiResponse({
+    status: 200,
+    description: 'Password changed successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Password changed successfully',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @Post('change-password')
+  async changePassword(@Body() body: { username: string; newPassword: string }) {
+    this.logger.log(`🔄 Password change requested for username: ${body.username}`);
+
+    try {
+      const user = await this.usersService.findByUsername(body.username);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Update password in both MongoDB and MikroTik
+      await this.usersService.updatePassword(user.username, body.newPassword);
+
+      const result = {
+        success: true,
+        message: 'Password changed successfully',
+      };
+
+      this.logger.log(`✅ Password changed for user: ${body.username}`);
+      return result;
+    } catch (error: any) {
+      this.logger.error(`❌ Password change failed for ${body.username}: ${error.message}`);
       throw error;
     }
   }

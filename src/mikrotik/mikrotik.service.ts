@@ -1,13 +1,29 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { Agent as HttpAgent } from 'http';
+import { Agent as HttpsAgent } from 'https';
 
 @Injectable()
 export class MikrotikService implements OnModuleInit {
   private logger = new Logger('MikrotikService');
   private proxyUrl: string = '';
+  private httpAgent = new HttpAgent({ keepAlive: true, maxSockets: 50 });
+  private httpsAgent = new HttpsAgent({ keepAlive: true, maxSockets: 50 });
+  private axiosInstance = axios.create({
+    timeout: 120000,
+    httpAgent: this.httpAgent,
+    httpsAgent: this.httpsAgent,
+  });
 
   constructor(private configService: ConfigService) {}
+
+  private isTestModeEnabled() {
+    const testMode =
+      this.configService.get('MIKROTIK_TEST_MODE') ??
+      process.env.MIKROTIK_TEST_MODE;
+    return String(testMode).toLowerCase() === 'true';
+  }
 
   async onModuleInit() {
     // Use the .NET MikroTik service (Tik4Net) via HTTP proxy
@@ -31,12 +47,28 @@ export class MikrotikService implements OnModuleInit {
     this.logger.log(`🔌 Creating MikroTik user: ${username}`);
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { username, password });
+      const resp = await this.axiosInstance.post(url, { username, password });
       this.logger.log(`  ✅ MikroTik user created successfully: ${username}`);
       return resp.data;
     } catch (err: any) {
       this.logger.error(
         `❌ Failed to create MikroTik user ${username}: ${err?.response?.data?.error || err.message}`,
+      );
+      throw err;
+    }
+  }
+
+  async updateUserPassword(username: string, newPassword: string) {
+    const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/users/password`;
+    this.logger.log(`🔑 Updating password for MikroTik user: ${username}`);
+    try {
+      this.logger.log(`  1️⃣ Sending PUT request to: ${url}`);
+      const resp = await this.axiosInstance.put(url, { username, newPassword });
+      this.logger.log(`  ✅ Password updated for MikroTik user: ${username}`);
+      return resp.data;
+    } catch (err: any) {
+      this.logger.error(
+        `❌ Failed to update password for MikroTik user ${username}: ${err?.response?.data?.error || err.message}`,
       );
       throw err;
     }
@@ -49,7 +81,7 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { username, durationHours });
+      const resp = await this.axiosInstance.post(url, { username, durationHours });
       this.logger.log(
         `  ✅ User activated: ${username} for ${durationHours} hours`,
       );
@@ -67,7 +99,7 @@ export class MikrotikService implements OnModuleInit {
     this.logger.warn(`⛔ DEPRECATED: Deactivating user ${username}`);
     try {
       this.logger.log(`  1️⃣ Sending DELETE request to: ${url}`);
-      const resp = await axios.delete(url, { data: { username } });
+      const resp = await this.axiosInstance.delete(url, { data: { username } });
       this.logger.log(`  ✅ User deactivated: ${username}`);
       return resp.data;
     } catch (err: any) {
@@ -85,7 +117,7 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { username });
+      const resp = await this.axiosInstance.post(url, { username });
       this.logger.log(`  ✅ User disabled (account retained): ${username}`);
       return resp.data;
     } catch (err: any) {
@@ -101,7 +133,7 @@ export class MikrotikService implements OnModuleInit {
     this.logger.log(`🗑️ Permanently deleting MikroTik user: ${username}`);
     try {
       this.logger.log(`  1️⃣ Sending DELETE request to: ${url}`);
-      const resp = await axios.delete(url, { data: { username } });
+      const resp = await this.axiosInstance.delete(url, { data: { username } });
       this.logger.log(`  ✅ User permanently deleted: ${username}`);
       return resp.data;
     } catch (err: any) {
@@ -117,7 +149,7 @@ export class MikrotikService implements OnModuleInit {
     this.logger.log(`🌐 Testing MikroTik connection`);
     try {
       this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
-      const resp = await axios.get(url);
+      const resp = await this.axiosInstance.get(url);
       this.logger.log(`✅ MikroTik connection test successful`);
       return resp.data;
     } catch (err: any) {
@@ -133,7 +165,7 @@ export class MikrotikService implements OnModuleInit {
     this.logger.log(`📋 Listing all MikroTik hotspot users`);
     try {
       this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
-      const resp = await axios.get(url);
+      const resp = await this.axiosInstance.get(url);
       const userList = resp.data.users || resp.data;
       const count = Array.isArray(userList) ? userList.length : 0;
       this.logger.log(`✅ Retrieved ${count} hotspot users`);
@@ -153,7 +185,7 @@ export class MikrotikService implements OnModuleInit {
     this.logger.log(`🔍 Getting details for MikroTik user: ${username}`);
     try {
       this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
-      const resp = await axios.get(url);
+      const resp = await this.axiosInstance.get(url);
       this.logger.log(`✅ User details retrieved: ${username}`);
       return resp.data.user || resp.data;
     } catch (err: any) {
@@ -165,13 +197,18 @@ export class MikrotikService implements OnModuleInit {
   }
 
   async userExists(username: string): Promise<boolean> {
+    if (this.isTestModeEnabled()) {
+      this.logger.warn(`🚧 MikroTik test mode enabled - mocking user existence check for ${username} (returning false)`);
+      return false; // In test mode, assume user doesn't exist so creation will be attempted
+    }
+
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/users/${encodeURIComponent(
       username,
     )}`;
     this.logger.log(`🔍 Checking if MikroTik user exists: ${username}`);
     try {
       this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
-      const resp = await axios.get(url);
+      const resp = await this.axiosInstance.get(url);
       const userExists = resp.data && resp.data.user;
       this.logger.log(`✅ User ${username} ${userExists ? 'exists' : 'does not exist'} on MikroTik`);
       return !!userExists;
@@ -193,7 +230,7 @@ export class MikrotikService implements OnModuleInit {
     this.logger.log(`🟢 Getting active MikroTik users`);
     try {
       this.logger.log(`  1️⃣ Sending GET request to: ${url}`);
-      const resp = await axios.get(url);
+      const resp = await this.axiosInstance.get(url);
       const activeList = resp.data.activeUsers || resp.data;
       const count = Array.isArray(activeList) ? activeList.length : 0;
       this.logger.log(`✅ Retrieved ${count} active users`);
@@ -213,7 +250,7 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { macAddress, durationHours });
+      const resp = await this.axiosInstance.post(url, { macAddress, durationHours });
       this.logger.log(`✅ MAC address bound to bypass: ${macAddress}`);
       return resp.data;
     } catch (err: any) {
@@ -229,7 +266,7 @@ export class MikrotikService implements OnModuleInit {
     this.logger.log(`🔓 Removing MAC address from bypass list: ${macAddress}`);
     try {
       this.logger.log(`  1️⃣ Sending DELETE request to: ${url}`);
-      const resp = await axios.delete(url, { params: { macAddress } });
+      const resp = await this.axiosInstance.delete(url, { params: { macAddress } });
       this.logger.log(`✅ MAC address removed from bypass: ${macAddress}`);
       return resp.data;
     } catch (err: any) {
@@ -253,7 +290,7 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, {
+      const resp = await this.axiosInstance.post(url, {
         username,
         durationHours,
         macAddress,
@@ -269,13 +306,30 @@ export class MikrotikService implements OnModuleInit {
   }
 
   async createHotspotUserOnly(username: string, durationHours: number) {
+    if (this.isTestModeEnabled()) {
+      this.logger.warn(`🚧 MikroTik test mode enabled - mocking hotspot user creation for ${username}`);
+      // Simulate a successful response
+      const mockResponse = {
+        success: true,
+        activeRouter: 'test-router-1',
+        message: `Test mode: Hotspot user ${username} created successfully`,
+        user: {
+          username,
+          durationHours,
+          created: new Date().toISOString(),
+        },
+      };
+      this.logger.log(`✅ Mock hotspot user created: ${username} (${durationHours}h)`);
+      return mockResponse;
+    }
+
     const url = `${this.proxyUrl.replace(/\/$/, '')}/api/mikrotik/create-hotspot-user`;
     this.logger.log(
       `🎁 Creating hotspot user (gift - no MAC binding): ${username} (${durationHours}h)`,
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { username, durationHours });
+      const resp = await this.axiosInstance.post(url, { username, durationHours });
       this.logger.log(
         `✅ Hotspot user created on router: ${resp.data.activeRouter}`,
       );
@@ -301,7 +355,7 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, { macAddress, durationHours });
+      const resp = await this.axiosInstance.post(url, { macAddress, durationHours });
       this.logger.log(`✅ MAC bound on router: ${resp.data.activeRouter}`);
       return resp.data;
     } catch (err: any) {
@@ -319,7 +373,7 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending DELETE request to: ${url}`);
-      const resp = await axios.delete(url, { params: { macAddress } });
+      const resp = await this.axiosInstance.delete(url, { params: { macAddress } });
       this.logger.log(`✅ MAC unbind completed on all available routers`);
       return resp.data;
     } catch (err: any) {
@@ -343,7 +397,7 @@ export class MikrotikService implements OnModuleInit {
     );
     try {
       this.logger.log(`  1️⃣ Sending POST request to: ${url}`);
-      const resp = await axios.post(url, {
+      const resp = await this.axiosInstance.post(url, {
         username,
         password,
         macAddress,

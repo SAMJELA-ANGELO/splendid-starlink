@@ -43,7 +43,7 @@ export class UsersController {
   async signup(@Body() body: SignupDto) {
     this.logger.log(`👤 User signup requested for username: ${body.username}`);
     try {
-      const user = await this.usersService.create(body.username, body.password);
+      const user = await this.usersService.create(body.username, body.password, undefined, undefined, undefined, false);
       this.logger.log(
         `✅ User created successfully with ID: ${user._id?.toString()}, Username: ${user.username}`,
       );
