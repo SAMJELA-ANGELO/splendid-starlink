@@ -16,6 +16,7 @@ import { Logger } from '@nestjs/common';
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:3002',
+      'https://splendid-starlink.onrender.com', // Production API server
       'https://splendid-starlink-frontend.onrender.com',
       'https://splendid-starlink.vercel.app',
       'https://splendidstarlink.netlify.app',

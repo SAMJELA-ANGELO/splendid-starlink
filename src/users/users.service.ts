@@ -44,24 +44,19 @@ export class UsersService {
         }
       }
 
-      // Step 1: Create user on MikroTik with plain password FIRST
-      // This happens before hashing so we use the original password
-      this.logger.log(`  1️⃣ Creating MikroTik hotspot user: ${username}`);
-      await this.mikrotikService.createUser(username, password);
-      this.logger.log(`  ✅ MikroTik hotspot user created: ${username}`);
-
-      // Step 2: Hash password for MongoDB storage
-      this.logger.log(`  2️⃣ Hashing password for MongoDB storage`);
+      // Step 1: Hash password for MongoDB storage
+      this.logger.log(`  1️⃣ Hashing password for MongoDB storage`);
       const hashedPassword = await bcrypt.hash(password, 10);
       this.logger.log(`  ✅ Password hashed successfully`);
 
-      // Step 3: Create user in MongoDB with device info and mikrotikCreated flag
-      this.logger.log(`  3️⃣ Creating user record in MongoDB`);
+      // Step 2: Create user in MongoDB with device info
+      // Note: MikroTik user creation moved to payment activation to avoid duplicates
+      this.logger.log(`  2️⃣ Creating user record in MongoDB`);
       const user = new this.userModel({
         username,
         password: hashedPassword,
         plainPassword: password, // Store plain password for recovery - SECURITY RISK
-        mikrotikCreated: true,
+        mikrotikCreated: false, // Will be set to true during payment activation
         macAddress: macAddress || null,
         ipAddress: ipAddress || null,
         routerIdentity: routerIdentity || null,
@@ -69,7 +64,7 @@ export class UsersService {
       });
       const savedUser = await user.save();
       this.logger.log(
-        `✅ User created successfully: ${username} (ID: ${savedUser._id}, MikroTik: ✓, MAC: ${macAddress || 'null'}, IP: ${ipAddress || 'null'})`,
+        `✅ User created successfully: ${username} (ID: ${savedUser._id}, MikroTik: not created yet, MAC: ${macAddress || 'null'}, IP: ${ipAddress || 'null'})`,
       );
       return savedUser;
     } catch (error: any) {
