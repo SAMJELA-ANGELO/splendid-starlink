@@ -310,24 +310,8 @@ export class PaymentsService {
         `✅ Payment initiated successfully: ${fapshiResponse.data.transId}`,
       );
 
-      // Start background polling for webhook fallback
-      this.pollFapshiStatus(payment.fapshiTransactionId)
-        .then((res) => {
-          if (res && res.status) {
-            this.logger.log(
-              `📡 Polling complete for ${payment.fapshiTransactionId} -> ${res.status}`,
-            );
-          } else {
-            this.logger.warn(
-              `⌛ Polling complete for ${payment.fapshiTransactionId} with no terminal status`,
-            );
-          }
-        })
-        .catch((err) => {
-          this.logger.error(
-            `❌ Polling error for ${payment.fapshiTransactionId}: ${err.message}`,
-          );
-        });
+      // Note: Removed polling - relying on webhooks only for payment status updates and activation
+      // Webhooks are more reliable and prevent duplicate activations
 
       return {
         paymentId: payment._id,
@@ -431,39 +415,19 @@ export class PaymentsService {
 
       // Activate user if payment succeeded
       if (response.data.status === 'SUCCESSFUL') {
-        this.logger.log(`  4️⃣ Payment successful - scheduling background activation`);
-        this.activateUserAccess(payment)
-          .then((activationResult) => {
-            if (activationResult?.success) {
-              this.logger.log(
-                `✅ Background activation completed for ${payment._id}: ${activationResult.message}`,
-              );
-            } else {
-              const activationResultMessage =
-                (activationResult as any)?.message ||
-                (activationResult as any)?.error ||
-                'Unknown activation failure';
-              this.logger.error(
-                `❌ Background activation failed for ${payment._id}: ${activationResultMessage}`,
-              );
-            }
-          })
-          .catch((activationError) => {
-            this.logger.error(
-              `❌ Background activation error for ${payment._id}: ${activationError?.message || activationError}`,
-            );
-          });
+        this.logger.log(`  4️⃣ Payment successful - status updated, activation will be handled by webhook`);
+        // Note: Activation is now handled only by webhook to prevent duplicates
 
         this.logger.log(`✅ Payment status check complete: ${transactionId}`);
         return {
           ...response.data,
           activation: {
             inProgress: true,
-            message: 'Activation started in the background',
+            message: 'Activation will be handled by webhook',
           },
           isGift: payment.isGift,
           recipientUsername: payment.recipientUsername,
-          message: 'Payment completed. User activation is in progress.',
+          message: 'Payment completed. User activation will be handled by webhook.',
         };
       }
 
